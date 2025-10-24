@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import SpaceNew from "./pages/SpaceNew";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import HomeChoice from "./pages/HomeChoice";
 
@@ -56,6 +57,8 @@ function App() {
       <Routes>
         {/* Temporary HomeChoice route for Issue #3 */}
         <Route path="/" element={<HomeChoice />} />
+        <Route path="/space/new" element={<SpaceNew />} />
+
 
         {/* Existing test route just to keep user management functional */}
         <Route
