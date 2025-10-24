@@ -19,5 +19,21 @@ model Space {
   name        String
   description String?
   mode        String
+  points      Int      @default(0)
   createdAt   DateTime @default(now())
+  gifts       Gift[]
+}
+
+model Gift {
+  id         Int       @id @default(autoincrement())
+  name       String
+  url        String
+  image      String?
+  price      Float?
+  category   String?
+  confirmed  Boolean   @default(false)
+  spaceId    Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  space      Space     @relation(fields: [spaceId], references: [id])
 }
