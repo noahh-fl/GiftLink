@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import HomeChoice from "./pages/HomeChoice";
 
 interface User {
   id: number;
@@ -50,41 +52,58 @@ function App() {
   };
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>GiftLink Users</h1>
+    <Router>
+      <Routes>
+        {/* Temporary HomeChoice route for Issue #3 */}
+        <Route path="/" element={<HomeChoice />} />
 
-      <form onSubmit={handleAddUser} style={{ marginBottom: "1.5rem" }}>
-        <input
-          type="text"
-          placeholder="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={{ marginRight: "0.5rem", padding: "0.5rem" }}
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{ marginRight: "0.5rem", padding: "0.5rem" }}
-        />
-        <button type="submit" disabled={loading} style={{ padding: "0.5rem 1rem" }}>
-          {loading ? "Adding..." : "Add User"}
-        </button>
-      </form>
+        {/* Existing test route just to keep user management functional */}
+        <Route
+          path="/users"
+          element={
+            <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
+              <h1>GiftLink Users</h1>
 
-      {users.length === 0 ? (
-        <p>No users yet.</p>
-      ) : (
-        <ul>
-          {users.map((u) => (
-            <li key={u.id}>
-              <strong>{u.name}</strong> — {u.email}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+              <form onSubmit={handleAddUser} style={{ marginBottom: "1.5rem" }}>
+                <input
+                  type="text"
+                  placeholder="Name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={{ marginRight: "0.5rem", padding: "0.5rem" }}
+                />
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  style={{ marginRight: "0.5rem", padding: "0.5rem" }}
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{ padding: "0.5rem 1rem" }}
+                >
+                  {loading ? "Adding..." : "Add User"}
+                </button>
+              </form>
+
+              {users.length === 0 ? (
+                <p>No users yet.</p>
+              ) : (
+                <ul>
+                  {users.map((u) => (
+                    <li key={u.id}>
+                      <strong>{u.name}</strong> — {u.email}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          }
+        />
+      </Routes>
+    </Router>
   );
 }
 
