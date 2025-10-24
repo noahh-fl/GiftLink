@@ -1,7 +1,11 @@
+import { useId } from "react";
 import { Link } from "react-router-dom";
 import "./HomeChoice.css";
 
 export default function HomeChoice() {
+  const createCopyId = useId();
+  const joinCopyId = useId();
+
   return (
     <main className="home-choice">
       <section
@@ -23,9 +27,10 @@ export default function HomeChoice() {
           <Link
             to="/space/new"
             className="home-choice__action home-choice__action--primary"
+            aria-describedby={createCopyId}
           >
             <span className="home-choice__action-label">Create New List</span>
-            <span className="home-choice__action-copy">
+            <span id={createCopyId} className="home-choice__action-copy">
               Start fresh, pick your point rules, and invite your people.
             </span>
           </Link>
@@ -33,10 +38,11 @@ export default function HomeChoice() {
           <Link
             to="/space/join"
             className="home-choice__action home-choice__action--secondary"
+            aria-describedby={joinCopyId}
           >
             <span className="home-choice__action-label">Join Active List</span>
-            <span className="home-choice__action-copy">
-              Already invited? Enter your code and jump into the space.
+            <span id={joinCopyId} className="home-choice__action-copy">
+              Already invited? Enter your code and jump into the space, or preview the flow before you join.
             </span>
           </Link>
         </div>
