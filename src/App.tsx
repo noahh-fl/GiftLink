@@ -41,8 +41,14 @@ function App() {
       setName("");
       setEmail("");
       fetchUsers(); // refresh list
-    } catch (err: any) {
-      if (err.response?.data?.message?.includes("Unique constraint")) {
+    } catch (err: unknown) {
+      const message =
+        typeof err === "object" &&
+        err !== null &&
+        "response" in err &&
+        (err as { response?: { data?: { message?: string } } }).response?.data
+          ?.message;
+      if (typeof message === "string" && message.includes("Unique constraint")) {
         alert("That email is already registered.");
       } else {
         alert("Error adding user. Check the console.");
