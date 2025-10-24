@@ -1,0 +1,61 @@
+/* Base Reset + App Shell */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+margin: 0;
+background: var(--color-bg);
+color: var(--color-text);
+font-family: var(--font-sans);
+font-size: var(--body-size);
+-webkit-font-smoothing: antialiased;
+-moz-osx-font-smoothing: grayscale;
+}
+
+
+/* Headings */
+h1 { font-size: var(--h1-size); font-weight: var(--h1-weight); line-height: 1.25; margin: 0; }
+h2 { font-size: var(--h2-size); font-weight: var(--h2-weight); line-height: 1.3; margin: 0; }
+h3 { font-size: var(--h3-size); font-weight: var(--h3-weight); line-height: 1.3; margin: 0; }
+
+
+/* Links */
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+
+/* Card */
+.card {
+background: var(--color-surface);
+border: 1px solid var(--color-border);
+border-radius: var(--radius-md);
+padding: var(--space-4);
+transition: box-shadow var(--dur-med) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.card:hover { box-shadow: var(--elev-1); }
+.card:active { transform: scale(0.98); box-shadow: var(--elev-2); }
+
+
+/* Focus utility */
+.focus-ring:focus-visible {
+outline: 2px solid var(--focus-ring);
+outline-offset: 2px;
+border-radius: inherit;
+}
+
+
+/* Quiet Input */
+.input {
+width: 100%;
+background: var(--color-surface);
+border: 1px solid var(--color-border);
+border-radius: var(--radius-md);
+padding: var(--space-3) var(--space-4);
+color: var(--color-text);
+}
+.input::placeholder { color: var(--color-text-muted); }
+.input:focus { outline: 2px solid var(--focus-ring); outline-offset: 0; }
+
+
+/* Small layout helpers */
+.row { display: flex; gap: var(--space-4); align-items: center; }
+.stack { display: flex; flex-direction: column; gap: var(--space-3); }

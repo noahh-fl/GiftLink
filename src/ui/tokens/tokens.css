@@ -1,0 +1,47 @@
+:root {
+/* Color */
+--color-bg: #F6F7F9;
+--color-surface: #FFFFFF;
+--color-border: rgba(17,20,24,0.08);
+--color-text: #111418;
+--color-text-muted: #5B6672;
+--color-accent: #0A84FF;
+--color-accent-quiet: rgba(10,132,255,0.12);
+--color-success: #1FAD66;
+--color-danger: #E03A3A;
+--focus-ring: #0A84FF;
+
+
+/* Radius */
+--radius-sm: 8px;
+--radius-md: 12px;
+--radius-lg: 16px;
+
+
+/* Spacing (4px base) */
+--space-1: 4px;
+--space-2: 8px;
+--space-3: 12px;
+--space-4: 16px;
+--space-5: 20px;
+--space-6: 24px;
+--space-8: 32px;
+--space-12: 48px;
+
+
+/* Type */
+--font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+--h1-size: 32px; --h1-weight: 700;
+--h2-size: 24px; --h2-weight: 600;
+--h3-size: 20px; --h3-weight: 600;
+--body-size: 16px; --body-weight: 400;
+--caption-size: 12px; --caption-weight: 500;
+
+
+/* Motion */
+--elev-1: 0 1px 3px rgba(0,0,0,.06);
+--elev-2: 0 6px 18px rgba(0,0,0,.08);
+--ease: cubic-bezier(.25,.1,.25,1);
+--dur-fast: 120ms;
+--dur-med: 200ms;
+}
