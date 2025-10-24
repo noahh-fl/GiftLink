@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import HomeChoice from "./pages/HomeChoice";
 import GiftList from "./pages/GiftList";
 import SpaceJoin from "./pages/SpaceJoin";
+import SpaceDashboard from "./pages/SpaceDashboard";
 
 interface User {
   id: number;
@@ -67,6 +68,7 @@ function App() {
         <Route path="/" element={<HomeChoice />} />
         <Route path="/space/new" element={<SpaceNew />} />
         <Route path="/space/join" element={<SpaceJoin />} />
+        <Route path="/space/:id" element={<SpaceDashboard />} />
         <Route path="/space/:id/gifts" element={<GiftList />} />
 
 
