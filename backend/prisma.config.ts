@@ -1,3 +1,6 @@
+// ✅ this line loads backend/.env for Prisma v6
+import "dotenv/config";
+
 import { defineConfig, env } from "prisma/config";
 
 export default defineConfig({

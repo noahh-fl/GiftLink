@@ -19,6 +19,7 @@ model Space {
   name        String
   description String?
   inviteCode  String   @unique
+  joinCode    String   @unique
   mode        String
   points      Int      @default(0)
   createdAt   DateTime @default(now())
@@ -39,3 +40,17 @@ model Gift {
   updatedAt  DateTime  @updatedAt
   space      Space     @relation(fields: [spaceId], references: [id])
 }
+
+// Test Plan:
+// Join (success)
+// curl -X POST http://127.0.0.1:3000/spaces/join
+// -H "Content-Type: application/json"
+// -d '{"code":"ABC123"}'
+// Join (not found)
+// curl -X POST http://127.0.0.1:3000/spaces/join
+// -H "Content-Type: application/json"
+// -d '{"code":"NOPE42"}'
+// Get code (owner)
+// curl -H "x-owner: true" http://127.0.0.1:3000/spaces/1/code
+// Rotate code (owner)
+// curl -X POST -H "x-owner: true" http://127.0.0.1:3000/spaces/1/code/rotate
