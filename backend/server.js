@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { randomBytes } from "node:crypto";
 import prisma from "./prisma/prisma.js";
+import { fetchUrlMetadata, mergeMetadataWithManualFields } from "./lib/urlMetadata.js";
+import { resolvePointsForGift, roundPriceToPoints } from "./lib/giftPoints.js";
 
 const app = Fastify({ logger: true });
 
@@ -52,6 +54,7 @@ const ERROR_CODES = {
   CONFLICT: "CONFLICT",
   FORBIDDEN: "FORBIDDEN",
   RATE_LIMITED: "RATE_LIMITED",
+  INVALID_TRANSITION: "INVALID_TRANSITION",
   INTERNAL: "INTERNAL_SERVER_ERROR",
 };
 
@@ -604,96 +607,281 @@ function parseIdParam(value, name, res) {
   return parsed;
 }
 
-function normalizeGiftPayload(payload = {}, res) {
-  if (!payload || typeof payload !== "object") {
-    res.status(400).send({ message: "Body must be a JSON object." });
+const PRIORITY_VALUES = new Set(["LOW", "MEDIUM", "HIGH"]);
+
+const GIFT_STATUS = {
+  PENDING: "PENDING",
+  RESERVED: "RESERVED",
+  PURCHASED: "PURCHASED",
+  DELIVERED: "DELIVERED",
+  RECEIVED: "RECEIVED",
+};
+
+function sanitizeNullableString(value) {
+  if (typeof value !== "string") {
     return null;
   }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
-  const rawName = "name" in payload ? payload.name : "";
-  const rawUrl = "url" in payload ? payload.url : "";
-
-  const name = typeof rawName === "string" ? rawName.trim() : "";
-  const url = typeof rawUrl === "string" ? rawUrl.trim() : "";
-
-  if (!name) {
-    res.status(400).send({ message: "Gift name is required." });
-    return null;
+function normalizePriority(value, { defaultValue = "MEDIUM", allowNull = false } = {}) {
+  if (value === undefined || value === null) {
+    return { value: allowNull ? null : defaultValue };
+  }
+  if (typeof value !== "string") {
+    return {
+      error: `Priority must be one of: ${Array.from(PRIORITY_VALUES).join(", ")}.`,
+    };
   }
 
-  if (!url) {
-    res.status(400).send({ message: "Gift URL is required." });
-    return null;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { value: allowNull ? null : defaultValue };
   }
 
-  const image =
-    "image" in payload && typeof payload.image === "string" && payload.image.trim()
-      ? payload.image.trim()
-      : null;
+  const normalized = trimmed.toUpperCase();
+  if (!PRIORITY_VALUES.has(normalized)) {
+    return {
+      error: `Priority must be one of: ${Array.from(PRIORITY_VALUES).join(", ")}.`,
+    };
+  }
 
-  const category =
-    "category" in payload && typeof payload.category === "string" && payload.category.trim()
-      ? payload.category.trim()
-      : null;
+  return { value: normalized };
+}
 
-  let price = null;
-  if ("price" in payload) {
-    const rawPrice = payload.price;
-    if (typeof rawPrice === "number") {
-      price = Number.isFinite(rawPrice) ? rawPrice : null;
-    } else if (typeof rawPrice === "string") {
-      const trimmed = rawPrice.trim();
-      if (trimmed) {
-        const parsed = Number.parseFloat(trimmed);
-        if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
-          price = parsed;
-        } else {
-          res.status(400).send({ message: "Price must be a valid number." });
-          return null;
-        }
-      }
-    } else if (rawPrice !== null && rawPrice !== undefined) {
-      res.status(400).send({ message: "Price must be a number." });
-      return null;
+function normalizeUrl(value, { allowNull = true, fieldName = "URL", strict = true } = {}) {
+  if (value === undefined || value === null) {
+    return { value: allowNull ? null : null };
+  }
+
+  if (typeof value !== "string") {
+    return strict
+      ? { error: `${fieldName} must be a string.` }
+      : { value: allowNull ? null : null };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { value: allowNull ? null : null };
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return strict
+        ? { error: `${fieldName} must use http or https.` }
+        : { value: allowNull ? null : null };
     }
+    return { value: parsed.toString() };
+  } catch (error) {
+    return strict
+      ? { error: `${fieldName} must be a valid URL.` }
+      : { value: allowNull ? null : null };
+  }
+}
 
-    if (price !== null && price < 0) {
-      res.status(400).send({ message: "Price cannot be negative." });
-      return null;
+function normalizePriceCents(value) {
+  if (value === undefined || value === null) {
+    return { value: null };
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return { error: "priceCents must be a finite number." };
     }
+    if (!Number.isInteger(value)) {
+      return { error: "priceCents must be an integer number of cents." };
+    }
+    if (value < 0) {
+      return { error: "priceCents cannot be negative." };
+    }
+    return { value };
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return { value: null };
+    }
+    if (!/^-?\d+$/.test(trimmed)) {
+      return { error: "priceCents must be an integer number of cents." };
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (parsed < 0) {
+      return { error: "priceCents cannot be negative." };
+    }
+    return { value: parsed };
+  }
+
+  return { error: "priceCents must be an integer number of cents." };
+}
+
+function parseBooleanInput(value) {
+  if (value === undefined || value === null) {
+    return { value: null };
+  }
+
+  if (typeof value === "boolean") {
+    return { value };
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return { value: null };
+    }
+    if (normalized === "true" || normalized === "1") {
+      return { value: true };
+    }
+    if (normalized === "false" || normalized === "0") {
+      return { value: false };
+    }
+  }
+
+  return { error: "Value must be a boolean." };
+}
+
+function serializeDate(value) {
+  if (!value) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function mapGift(gift) {
+  if (!gift) {
+    return null;
   }
 
   return {
-    name,
-    url,
-    image,
-    category,
-    price,
+    id: gift.id,
+    wishlistItemId: gift.wishlistItemId,
+    giverId: gift.giverId,
+    status: gift.status,
+    sentimentPoints: gift.sentimentPoints,
+    pricePointsLocked: gift.pricePointsLocked,
+    reservedAt: serializeDate(gift.reservedAt),
+    purchasedAt: serializeDate(gift.purchasedAt),
+    deliveredAt: serializeDate(gift.deliveredAt),
+    receivedAt: serializeDate(gift.receivedAt),
+    createdAt: serializeDate(gift.createdAt),
+    updatedAt: serializeDate(gift.updatedAt),
   };
 }
 
-function calculatePointsForGift(mode, price) {
-  if (mode === "sentiment") {
-    return 10;
-  }
-
-  const resolvedPrice = typeof price === "number" && Number.isFinite(price) ? price : 0;
-  const rounded = Math.ceil(resolvedPrice);
-  return Number.isFinite(rounded) && rounded > 0 ? rounded : 0;
+function mapWishlistItem(item) {
+  return {
+    id: item.id,
+    spaceId: item.spaceId,
+    title: item.title,
+    url: item.url,
+    image: item.image,
+    priceCents: item.priceCents,
+    category: item.category,
+    notes: item.notes,
+    priority: item.priority,
+    archived: item.archived,
+    createdAt: serializeDate(item.createdAt),
+    updatedAt: serializeDate(item.updatedAt),
+    gift: mapGift(item.gift ?? null),
+  };
 }
 
-// list users
-app.get("/users", async () => {
-  const users = await prisma.user.findMany();
-  return users;
-});
+function parseSentimentPoints(value) {
+  if (value === undefined || value === null) {
+    return { value: null };
+  }
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return { error: "sentimentPoints must be a number." };
+  }
+  const rounded = Math.trunc(value);
+  if (rounded < 0) {
+    return { error: "sentimentPoints cannot be negative." };
+  }
+  return { value: rounded };
+}
 
-app.post("/space/:id/gift", async (req, res) => {
-  const spaceId = parseIdParam(req.params.id, "Space id", res);
-  if (!spaceId) return;
+async function loadGiftWithContext(giftId) {
+  return prisma.gift.findUnique({
+    where: { id: giftId },
+    include: {
+      wishlistItem: {
+        include: {
+          space: true,
+        },
+      },
+    },
+  });
+}
 
-  const giftPayload = normalizeGiftPayload(req.body, res);
-  if (!giftPayload) return;
+function buildLifecycleResponse(gift) {
+  return {
+    giftId: gift.id,
+    status: gift.status,
+    updatedAt: serializeDate(gift.updatedAt),
+  };
+}
+
+app.post("/wishlist", async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const rawSpaceId = req.body.spaceId;
+  const spaceId = Number.parseInt(rawSpaceId, 10);
+  if (!Number.isFinite(spaceId) || spaceId <= 0) {
+    return sendJsonError(res, 400, "spaceId must be a positive integer.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const urlResult = normalizeUrl(req.body.url, { allowNull: true, fieldName: "URL" });
+  if (urlResult.error) {
+    return sendJsonError(res, 400, urlResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const manualTitle = sanitizeNullableString(req.body.title);
+  const imageResult = normalizeUrl(req.body.image, {
+    allowNull: true,
+    fieldName: "Image URL",
+  });
+  if (imageResult.error) {
+    return sendJsonError(res, 400, imageResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const priceResult = normalizePriceCents(req.body.priceCents);
+  if (priceResult.error) {
+    return sendJsonError(res, 400, priceResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const priorityResult = normalizePriority(req.body.priority);
+  if (priorityResult.error) {
+    return sendJsonError(res, 400, priorityResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const category = sanitizeNullableString(req.body.category);
+  const notes = sanitizeNullableString(req.body.notes);
+
+  let metadata = { title: null, image: null, priceCents: null };
+  if (urlResult.value) {
+    metadata = await fetchUrlMetadata(urlResult.value);
+  }
+
+  const merged = mergeMetadataWithManualFields(metadata, {
+    title: manualTitle,
+    image: imageResult.value,
+    priceCents: priceResult.value,
+  });
+
+  const title = sanitizeNullableString(merged.title);
+  if (!title) {
+    return sendJsonError(res, 400, "Title is required.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const resolvedImage =
+    merged.image === imageResult.value
+      ? imageResult.value
+      : normalizeUrl(merged.image, { allowNull: true, fieldName: "Image URL", strict: false }).value;
+  const resolvedPrice = typeof merged.priceCents === "number" ? merged.priceCents : null;
 
   try {
     const space = await prisma.space.findUnique({
@@ -702,76 +890,407 @@ app.post("/space/:id/gift", async (req, res) => {
     });
 
     if (!space) {
-      return res.status(404).send({ message: "Space not found." });
+      return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
     }
 
-    const gift = await prisma.gift.create({
+    const created = await prisma.wishlistItem.create({
       data: {
-        ...giftPayload,
-        spaceId: spaceId,
+        spaceId,
+        title,
+        url: urlResult.value,
+        image: resolvedImage,
+        priceCents: resolvedPrice,
+        category,
+        notes,
+        priority: priorityResult.value,
+        gift: {
+          create: {},
+        },
+      },
+      include: { gift: true },
+    });
+
+    return res.status(201).send(mapWishlistItem(created));
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to create wishlist item");
+    return sendJsonError(res, 500, "Failed to create wishlist item.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.get("/wishlist", async (req, res) => {
+  const query = req.query ?? {};
+  const rawSpaceId = query.spaceId;
+  const spaceId = Number.parseInt(rawSpaceId, 10);
+  if (!Number.isFinite(spaceId) || spaceId <= 0) {
+    return sendJsonError(res, 400, "spaceId is required and must be a positive integer.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const filters = { spaceId };
+
+  const archivedResult = parseBooleanInput(query.archived);
+  if (archivedResult.error) {
+    return sendJsonError(res, 400, "archived must be a boolean.", ERROR_CODES.BAD_REQUEST);
+  }
+  filters.archived = archivedResult.value ?? false;
+
+  const priorityResult = normalizePriority(query.priority, { allowNull: true });
+  if (priorityResult.error) {
+    return sendJsonError(res, 400, priorityResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+  if (priorityResult.value) {
+    filters.priority = priorityResult.value;
+  }
+
+  const category = sanitizeNullableString(query.category);
+  if (category) {
+    filters.category = category;
+  }
+
+  const minResult = normalizePriceCents(query.priceMin);
+  if (minResult.error) {
+    return sendJsonError(res, 400, "priceMin must be an integer number of cents.", ERROR_CODES.BAD_REQUEST);
+  }
+  const maxResult = normalizePriceCents(query.priceMax);
+  if (maxResult.error) {
+    return sendJsonError(res, 400, "priceMax must be an integer number of cents.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  if (minResult.value !== null && maxResult.value !== null && minResult.value > maxResult.value) {
+    return sendJsonError(res, 400, "priceMin cannot be greater than priceMax.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const priceFilter = {};
+  if (minResult.value !== null) {
+    priceFilter.gte = minResult.value;
+  }
+  if (maxResult.value !== null) {
+    priceFilter.lte = maxResult.value;
+  }
+  if (Object.keys(priceFilter).length > 0) {
+    filters.priceCents = priceFilter;
+  }
+
+  try {
+    const items = await prisma.wishlistItem.findMany({
+      where: filters,
+      include: { gift: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return res.status(200).send(items.map(mapWishlistItem));
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to load wishlist items");
+    return sendJsonError(res, 500, "Failed to load wishlist items.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.patch("/wishlist/:id", async (req, res) => {
+  const itemId = parseIdParam(req.params.id, "Wishlist id", res);
+  if (!itemId) {
+    return;
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const updates = {};
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "notes")) {
+    updates.notes = sanitizeNullableString(req.body.notes);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "priority")) {
+    const priorityResult = normalizePriority(req.body.priority);
+    if (priorityResult.error) {
+      return sendJsonError(res, 400, priorityResult.error, ERROR_CODES.BAD_REQUEST);
+    }
+    updates.priority = priorityResult.value;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "archived")) {
+    const archivedResult = parseBooleanInput(req.body.archived);
+    if (archivedResult.error || archivedResult.value === null) {
+      return sendJsonError(res, 400, "archived must be a boolean.", ERROR_CODES.BAD_REQUEST);
+    }
+    updates.archived = archivedResult.value;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return sendJsonError(res, 400, "At least one updatable field is required.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  try {
+    const updated = await prisma.wishlistItem.update({
+      where: { id: itemId },
+      data: updates,
+      include: { gift: true },
+    });
+    return res.status(200).send(mapWishlistItem(updated));
+  } catch (error) {
+    if (error?.code === "P2025") {
+      return sendJsonError(res, 404, "Wishlist item not found.", ERROR_CODES.NOT_FOUND);
+    }
+    req.log.error({ err: error }, "Failed to update wishlist item");
+    return sendJsonError(res, 500, "Failed to update wishlist item.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/gift/:id/reserve", async (req, res) => {
+  const giftId = parseIdParam(req.params.id, "Gift id", res);
+  if (!giftId) {
+    return;
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const giverId = Number.parseInt(req.body.giverId, 10);
+  if (!Number.isFinite(giverId) || giverId <= 0) {
+    return sendJsonError(res, 400, "giverId must be a positive integer.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  try {
+    const gift = await loadGiftWithContext(giftId);
+    if (!gift) {
+      return sendJsonError(res, 404, "Gift not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (gift.wishlistItem?.archived) {
+      return sendJsonError(res, 409, "Wishlist item is archived.", ERROR_CODES.CONFLICT);
+    }
+
+    if (gift.status !== GIFT_STATUS.PENDING) {
+      return sendJsonError(res, 409, "Gift cannot be reserved in its current state.", ERROR_CODES.INVALID_TRANSITION);
+    }
+
+    const giver = await prisma.user.findUnique({
+      where: { id: giverId },
+      select: { id: true },
+    });
+
+    if (!giver) {
+      return sendJsonError(res, 404, "Giver not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    const updated = await prisma.gift.update({
+      where: { id: giftId },
+      data: {
+        status: GIFT_STATUS.RESERVED,
+        giverId,
+        reservedAt: new Date(),
       },
     });
 
-    return res.status(201).send(gift);
+    return res.status(200).send(buildLifecycleResponse(updated));
   } catch (error) {
-    req.log.error({ err: error }, "Failed to create gift");
-    return res.status(500).send({ message: "Failed to create gift." });
+    req.log.error({ err: error }, "Failed to reserve gift");
+    return sendJsonError(res, 500, "Failed to reserve gift.", ERROR_CODES.INTERNAL);
   }
+});
+
+app.post("/gift/:id/purchase", async (req, res) => {
+  const giftId = parseIdParam(req.params.id, "Gift id", res);
+  if (!giftId) {
+    return;
+  }
+
+  const payload = req.body ?? {};
+  if (payload && typeof payload !== "object") {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const priceResult = normalizePriceCents(payload?.priceCents);
+  if (priceResult.error) {
+    return sendJsonError(res, 400, priceResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  try {
+    const gift = await loadGiftWithContext(giftId);
+    if (!gift) {
+      return sendJsonError(res, 404, "Gift not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (gift.status !== GIFT_STATUS.RESERVED) {
+      return sendJsonError(res, 409, "Gift cannot be marked as purchased.", ERROR_CODES.INVALID_TRANSITION);
+    }
+
+    let pricePointsLocked = gift.pricePointsLocked;
+    if (priceResult.value !== null) {
+      pricePointsLocked = roundPriceToPoints(priceResult.value);
+    } else if (pricePointsLocked === null || pricePointsLocked === undefined) {
+      const fallback = gift.wishlistItem?.priceCents;
+      pricePointsLocked = typeof fallback === "number" ? roundPriceToPoints(fallback) : 0;
+    }
+
+    const updated = await prisma.gift.update({
+      where: { id: giftId },
+      data: {
+        status: GIFT_STATUS.PURCHASED,
+        purchasedAt: new Date(),
+        pricePointsLocked: pricePointsLocked ?? 0,
+      },
+    });
+
+    return res.status(200).send(buildLifecycleResponse(updated));
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to mark gift as purchased");
+    return sendJsonError(res, 500, "Failed to mark gift as purchased.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/gift/:id/deliver", async (req, res) => {
+  const giftId = parseIdParam(req.params.id, "Gift id", res);
+  if (!giftId) {
+    return;
+  }
+
+  try {
+    const gift = await loadGiftWithContext(giftId);
+    if (!gift) {
+      return sendJsonError(res, 404, "Gift not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (gift.status !== GIFT_STATUS.PURCHASED) {
+      return sendJsonError(res, 409, "Gift cannot be marked as delivered.", ERROR_CODES.INVALID_TRANSITION);
+    }
+
+    const updated = await prisma.gift.update({
+      where: { id: giftId },
+      data: {
+        status: GIFT_STATUS.DELIVERED,
+        deliveredAt: new Date(),
+      },
+    });
+
+    return res.status(200).send(buildLifecycleResponse(updated));
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to mark gift as delivered");
+    return sendJsonError(res, 500, "Failed to mark gift as delivered.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/gift/:id/receive", async (req, res) => {
+  const giftId = parseIdParam(req.params.id, "Gift id", res);
+  if (!giftId) {
+    return;
+  }
+
+  const payload = req.body ?? {};
+  if (payload && typeof payload !== "object") {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  try {
+    const gift = await loadGiftWithContext(giftId);
+    if (!gift) {
+      return sendJsonError(res, 404, "Gift not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (gift.status !== GIFT_STATUS.DELIVERED) {
+      return sendJsonError(res, 409, "Gift cannot be marked as received.", ERROR_CODES.INVALID_TRANSITION);
+    }
+
+    const spaceMode = gift.wishlistItem?.space?.mode ?? DEFAULT_SPACE_MODE;
+    let sentimentPointsUpdate = undefined;
+
+    if (spaceMode === "sentiment") {
+      const sentimentResult = parseSentimentPoints(payload?.sentimentPoints);
+      if (sentimentResult.error || sentimentResult.value === null) {
+        return sendJsonError(res, 400, "sentimentPoints are required for sentiment-valued spaces.", ERROR_CODES.BAD_REQUEST);
+      }
+      sentimentPointsUpdate = sentimentResult.value;
+    }
+
+    let pricePointsLocked = gift.pricePointsLocked;
+    if (spaceMode !== "sentiment") {
+      if (pricePointsLocked === null || pricePointsLocked === undefined) {
+        const fallbackPrice = gift.wishlistItem?.priceCents;
+        pricePointsLocked = typeof fallbackPrice === "number" ? roundPriceToPoints(fallbackPrice) : 0;
+      }
+    }
+
+    const updateData = {
+      status: GIFT_STATUS.RECEIVED,
+      receivedAt: new Date(),
+    };
+
+    if (spaceMode === "sentiment") {
+      updateData.sentimentPoints = sentimentPointsUpdate;
+    } else {
+      updateData.pricePointsLocked = pricePointsLocked ?? 0;
+    }
+
+    const updated = await prisma.gift.update({
+      where: { id: giftId },
+      data: updateData,
+      include: {
+        wishlistItem: {
+          include: {
+            space: true,
+          },
+        },
+      },
+    });
+
+    const points = resolvePointsForGift(
+      updated.wishlistItem.space.mode,
+      updated,
+      updated.wishlistItem,
+    );
+
+    return res.status(200).send({
+      giftId: updated.id,
+      status: updated.status,
+      updatedAt: serializeDate(updated.updatedAt),
+      pointsAwarded: points.points,
+      mode: points.mode,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to mark gift as received");
+    return sendJsonError(res, 500, "Failed to mark gift as received.", ERROR_CODES.INTERNAL);
+  }
+});
+
+// list users
+app.get("/users", async () => {
+  const users = await prisma.user.findMany();
+  return users;
 });
 
 app.get("/space/:id/gifts", async (req, res) => {
   const spaceId = parseIdParam(req.params.id, "Space id", res);
-  if (!spaceId) return;
+  if (!spaceId) {
+    return;
+  }
 
   try {
     const gifts = await prisma.gift.findMany({
-      where: { spaceId },
+      where: {
+        wishlistItem: {
+          spaceId,
+        },
+      },
+      include: {
+        wishlistItem: true,
+      },
       orderBy: { createdAt: "desc" },
     });
-    return res.status(200).send(gifts);
+
+    return res.status(200).send(
+      gifts.map((gift) => ({
+        ...mapGift(gift),
+        wishlistItem: {
+          id: gift.wishlistItem.id,
+          title: gift.wishlistItem.title,
+          priority: gift.wishlistItem.priority,
+          archived: gift.wishlistItem.archived,
+        },
+      })),
+    );
   } catch (error) {
     req.log.error({ err: error }, "Failed to list gifts");
-    return res.status(500).send({ message: "Failed to load gifts." });
-  }
-});
-
-app.patch("/gift/:id/confirm", async (req, res) => {
-  const giftId = parseIdParam(req.params.id, "Gift id", res);
-  if (!giftId) return;
-
-  try {
-    const gift = await prisma.gift.findUnique({
-      where: { id: giftId },
-      include: {
-        space: true,
-      },
-    });
-
-    if (!gift) {
-      return res.status(404).send({ message: "Gift not found." });
-    }
-
-    if (gift.confirmed) {
-      return res.status(200).send(gift);
-    }
-
-    const pointsToAward = calculatePointsForGift(gift.space.mode, gift.price);
-
-    const [updatedGift] = await prisma.$transaction([
-      prisma.gift.update({
-        where: { id: giftId },
-        data: { confirmed: true },
-      }),
-      prisma.space.update({
-        where: { id: gift.spaceId },
-        data: { points: { increment: pointsToAward } },
-      }),
-    ]);
-
-    return res.status(200).send(updatedGift);
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to confirm gift");
-    return res.status(500).send({ message: "Failed to confirm gift." });
+    return sendJsonError(res, 500, "Failed to load gifts.", ERROR_CODES.INTERNAL);
   }
 });
 
@@ -797,10 +1316,15 @@ app.get("/space/:id/points", async (req, res) => {
 });
 
 // start server
-app.listen({ port: 3000 }, (err, address) => {
-  if (err) throw err;
-  console.log(`Server running at ${address}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  app.listen({ port: 3000 }, (err, address) => {
+    if (err) throw err;
+    console.log(`Server running at ${address}`);
+  });
+}
+
+export { app };
+export default app;
 
 // Test Plan:
 // Join (success)
