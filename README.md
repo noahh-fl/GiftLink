@@ -1,73 +1,47 @@
-# React + TypeScript + Vite
+# GiftLink
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+GiftLink pairs a lightweight Fastify backend with a Vite + React client to make sharing gift ideas feel effortless.
 
-Currently, two official plugins are available:
+## Getting Started
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. Install dependencies:
+   ```bash
+   npm install
+   npm --prefix backend install
+   ```
+   The backend ships with a default SQLite path; copy `backend/.env.example` to `backend/.env` if you need a different location.
+2. Sync the database schema (creates `backend/prisma/dev.db` when needed):
+   ```bash
+   (cd backend && npx prisma db push)
+   ```
+3. Start the development server(s) as needed.
 
-## React Compiler
+## Database Seeding
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Seed data helps you preview the Space dashboard and join flow without manual setup.
 
-## Expanding the ESLint configuration
+1. Populate demo data (this also ensures the schema is pushed):
+   ```bash
+   npm run db:seed
+   ```
+2. You will see calm confirmation logs similar to:
+   ```
+   🌱 Preparing demo spaces for GiftLink...
+   ✨ Demo spaces ready. Join codes:
+   • Alpha Space → "alpha-space"
+   • Beta Space → "beta-space"
+   🤝 Re-run this seed anytime for a fresh-yet-familiar test bed.
+   ```
+3. Verify the records if desired:
+   ```bash
+   (cd backend && npx prisma studio)
+   ```
+   or run a quick SQL check:
+   ```bash
+   (cd backend && npx prisma db execute --stdin <<'SQL'
+   SELECT joinCode FROM Space;
+   SQL
+   )
+   ```
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+The seed is idempotent, so you can re-run it whenever you want to reset join codes for manual testing.
