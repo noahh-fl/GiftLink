@@ -34,12 +34,24 @@ const INVITE_CODE_MIN_LENGTH = 6;
 const INVITE_CODE_MAX_LENGTH = 10;
 const INVITE_CODE_REGEX = /^[A-Z0-9-]{6,10}$/;
 const MAX_INVITE_CODE_ATTEMPTS = 5;
+
+const JOIN_CODE_REGEX = /^[A-Z0-9]{6,8}$/;
+const JOIN_CODE_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const JOIN_CODE_LENGTH = 6;
+const MAX_JOIN_CODE_ATTEMPTS = 5;
+
+const JOIN_RATE_LIMIT = 10;
+const JOIN_RATE_WINDOW_MS = 5 * 60 * 1000;
+const joinAttemptTracker = new Map();
+
 const DEFAULT_SPACE_MODE = "price";
 
 const ERROR_CODES = {
   BAD_REQUEST: "BAD_REQUEST",
   NOT_FOUND: "NOT_FOUND",
   CONFLICT: "CONFLICT",
+  FORBIDDEN: "FORBIDDEN",
+  RATE_LIMITED: "RATE_LIMITED",
   INTERNAL: "INTERNAL_SERVER_ERROR",
 };
 
@@ -54,6 +66,37 @@ function generateInviteCode() {
     inviteCode += INVITE_CODE_CHARSET[charIndex];
   }
   return inviteCode;
+}
+
+function isValidJoinCode(code) {
+  if (typeof code !== "string") {
+    return false;
+  }
+  return JOIN_CODE_REGEX.test(code);
+}
+
+async function generateJoinCode() {
+  for (let attempt = 0; attempt < MAX_JOIN_CODE_ATTEMPTS; attempt += 1) {
+    const chunk = randomBytes(JOIN_CODE_LENGTH);
+    let joinCode = "";
+    for (let idx = 0; idx < chunk.length; idx += 1) {
+      const charIndex = chunk[idx] % JOIN_CODE_CHARSET.length;
+      joinCode += JOIN_CODE_CHARSET[charIndex];
+    }
+
+    const existing = await prisma.space.findUnique({
+      where: { joinCode },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return joinCode;
+    }
+  }
+
+  const error = new Error("Failed to generate unique join code.");
+  error.code = "JOIN_CODE_GENERATION_FAILED";
+  throw error;
 }
 
 async function createSpaceWithInvite(data = {}) {
@@ -71,22 +114,27 @@ async function createSpaceWithInvite(data = {}) {
 
   for (let attempt = 0; attempt < MAX_INVITE_CODE_ATTEMPTS; attempt += 1) {
     try {
+      const joinCode = await generateJoinCode();
       return await prisma.space.create({
         data: {
           ...prepared,
           inviteCode: generateInviteCode(),
+          joinCode,
         },
       });
     } catch (error) {
-      if (isInviteCodeUniqueError(error)) {
+      if (error?.code === "JOIN_CODE_GENERATION_FAILED") {
+        throw error;
+      }
+      if (isInviteCodeUniqueError(error) || isJoinCodeUniqueError(error)) {
         continue;
       }
       throw error;
     }
   }
 
-  const error = new Error("Unable to allocate unique invite code.");
-  error.code = "INVITE_CODE_CONFLICT";
+  const error = new Error("Unable to allocate unique invite/join code.");
+  error.code = "SPACE_CODE_CONFLICT";
   throw error;
 }
 
@@ -106,8 +154,58 @@ function isInviteCodeUniqueError(error) {
   return typeof target === "string" && target.includes("inviteCode");
 }
 
+function isJoinCodeUniqueError(error) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  if (error.code !== "P2002") {
+    return false;
+  }
+
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    return target.some((value) => typeof value === "string" && value.includes("joinCode"));
+  }
+  return typeof target === "string" && target.includes("joinCode");
+}
+
 function sendJsonError(res, statusCode, message, code) {
   return res.status(statusCode).send({ message, code });
+}
+
+function hasExceededJoinRateLimit(ipAddress) {
+  const now = Date.now();
+  const key = typeof ipAddress === "string" && ipAddress ? ipAddress : "unknown";
+  const record = joinAttemptTracker.get(key);
+
+  if (!record || now - record.windowStart >= JOIN_RATE_WINDOW_MS) {
+    joinAttemptTracker.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+
+  if (record.count >= JOIN_RATE_LIMIT) {
+    return true;
+  }
+
+  record.count += 1;
+  return false;
+}
+
+function isOwnerRequest(req) {
+  const ownerHeader = req.headers["x-owner"];
+  if (Array.isArray(ownerHeader)) {
+    return ownerHeader.some(
+      (value) => typeof value === "string" && value.toLowerCase() === "true",
+    );
+  }
+  if (typeof ownerHeader === "string") {
+    return ownerHeader.toLowerCase() === "true";
+  }
+  if (typeof ownerHeader === "boolean") {
+    return ownerHeader === true;
+  }
+  return false;
 }
 
 function normalizeSpacePayload(payload, { requireName = false } = {}) {
@@ -161,6 +259,7 @@ function serializeSpace(space) {
     name: space.name,
     description: space.description,
     inviteCode: space.inviteCode,
+    joinCode: space.joinCode,
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
   };
@@ -193,8 +292,12 @@ app.post("/space", async (req, res) => {
     });
     return res.status(201).send(space);
   } catch (error) {
-    if (error?.code === "INVITE_CODE_CONFLICT") {
-      return res.status(409).send({ message: "Failed to create space due to invite code conflict." });
+    if (error?.code === "SPACE_CODE_CONFLICT") {
+      return res.status(409).send({ message: "Failed to create space due to code conflict." });
+    }
+    if (error?.code === "JOIN_CODE_GENERATION_FAILED") {
+      req.log.error({ err: error }, "Failed to allocate join code");
+      return res.status(500).send({ message: "Failed to create space." });
     }
     req.log.error({ err: error }, "Failed to create space");
     return res.status(500).send({ message: "Failed to create space." });
@@ -224,13 +327,17 @@ app.post("/spaces", async (req, res) => {
     });
     return res.status(201).send({ space: serializeSpace(space) });
   } catch (creationError) {
-    if (creationError?.code === "INVITE_CODE_CONFLICT") {
+    if (creationError?.code === "SPACE_CODE_CONFLICT") {
       return sendJsonError(
         res,
         409,
-        "Invite code collision, please retry.",
+        "Code collision, please retry.",
         ERROR_CODES.CONFLICT,
       );
+    }
+    if (creationError?.code === "JOIN_CODE_GENERATION_FAILED") {
+      req.log.error({ err: creationError }, "Failed to allocate join code");
+      return sendJsonError(res, 500, "Failed to create space.", ERROR_CODES.INTERNAL);
     }
     req.log.error({ err: creationError }, "Failed to create space");
     return sendJsonError(res, 500, "Failed to create space.", ERROR_CODES.INTERNAL);
@@ -355,6 +462,136 @@ app.get("/spaces", async (req, res) => {
   } catch (error) {
     req.log.error({ err: error }, "Failed to load space by invite code");
     return sendJsonError(res, 500, "Failed to load space.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/spaces/join", async (req, res) => {
+  const codeInput = req.body?.code;
+  if (typeof codeInput !== "string") {
+    return sendJsonError(res, 400, "Code is required.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const normalizedCode = codeInput.trim().toUpperCase();
+  if (!isValidJoinCode(normalizedCode)) {
+    return sendJsonError(
+      res,
+      400,
+      "Code must be 6-8 characters using A-Z or 0-9.",
+      ERROR_CODES.BAD_REQUEST,
+    );
+  }
+
+  const clientIp = req.ip ?? req.headers["x-forwarded-for"] ?? "unknown";
+  if (hasExceededJoinRateLimit(clientIp)) {
+    return sendJsonError(
+      res,
+      429,
+      "Too many attempts. Try again later.",
+      ERROR_CODES.RATE_LIMITED,
+    );
+  }
+
+  try {
+    const space = await prisma.space.findUnique({
+      where: { joinCode: normalizedCode },
+      select: { id: true, name: true, mode: true, createdAt: true },
+    });
+
+    if (!space) {
+      return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    return res.status(200).send({
+      id: space.id,
+      name: space.name,
+      mode: space.mode,
+      createdAt: space.createdAt,
+    });
+  } catch (joinError) {
+    req.log.error({ err: joinError }, "Failed to join space");
+    return sendJsonError(res, 500, "Failed to join space.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.get("/spaces/:id/code", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  if (!isOwnerRequest(req)) {
+    return sendJsonError(res, 403, "Forbidden.", ERROR_CODES.FORBIDDEN);
+  }
+
+  try {
+    const space = await prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { joinCode: true },
+    });
+
+    if (!space) {
+      return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    return res.status(200).send({ code: space.joinCode });
+  } catch (loadError) {
+    req.log.error({ err: loadError }, "Failed to fetch join code");
+    return sendJsonError(res, 500, "Failed to fetch join code.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/spaces/:id/code/rotate", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  if (!isOwnerRequest(req)) {
+    return sendJsonError(res, 403, "Forbidden.", ERROR_CODES.FORBIDDEN);
+  }
+
+  try {
+    const space = await prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { joinCode: true },
+    });
+
+    if (!space) {
+      return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    for (let attempt = 0; attempt < MAX_JOIN_CODE_ATTEMPTS; attempt += 1) {
+      const candidate = await generateJoinCode();
+      if (candidate === space.joinCode) {
+        continue;
+      }
+
+      try {
+        const updated = await prisma.space.update({
+          where: { id: spaceId },
+          data: { joinCode: candidate },
+          select: { joinCode: true },
+        });
+        return res.status(200).send({ code: updated.joinCode });
+      } catch (updateError) {
+        if (isJoinCodeUniqueError(updateError)) {
+          continue;
+        }
+        if (updateError?.code === "P2025") {
+          return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
+        }
+        throw updateError;
+      }
+    }
+
+    return sendJsonError(res, 500, "Failed to rotate join code.", ERROR_CODES.INTERNAL);
+  } catch (rotationError) {
+    if (rotationError?.code === "JOIN_CODE_GENERATION_FAILED") {
+      req.log.error({ err: rotationError }, "Failed to allocate join code during rotation");
+      return sendJsonError(res, 500, "Failed to rotate join code.", ERROR_CODES.INTERNAL);
+    }
+    req.log.error({ err: rotationError }, "Failed to rotate join code");
+    return sendJsonError(res, 500, "Failed to rotate join code.", ERROR_CODES.INTERNAL);
   }
 });
 
@@ -564,3 +801,17 @@ app.listen({ port: 3000 }, (err, address) => {
   if (err) throw err;
   console.log(`Server running at ${address}`);
 });
+
+// Test Plan:
+// Join (success)
+// curl -X POST http://127.0.0.1:3000/spaces/join
+// -H "Content-Type: application/json"
+// -d '{"code":"ABC123"}'
+// Join (not found)
+// curl -X POST http://127.0.0.1:3000/spaces/join
+// -H "Content-Type: application/json"
+// -d '{"code":"NOPE42"}'
+// Get code (owner)
+// curl -H "x-owner: true" http://127.0.0.1:3000/spaces/1/code
+// Rotate code (owner)
+// curl -X POST -H "x-owner: true" http://127.0.0.1:3000/spaces/1/code/rotate
