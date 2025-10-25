@@ -6,6 +6,7 @@ import HomeChoice from "./pages/HomeChoice";
 import GiftList from "./pages/GiftList";
 import SpaceJoin from "./pages/SpaceJoin";
 import SpaceDashboard from "./pages/SpaceDashboard";
+import GiftDetail from "./pages/GiftDetail";
 
 interface User {
   id: number;
@@ -70,6 +71,7 @@ function App() {
         <Route path="/space/join" element={<SpaceJoin />} />
         <Route path="/space/:id" element={<SpaceDashboard />} />
         <Route path="/space/:id/gifts" element={<GiftList />} />
+        <Route path="/space/:id/gifts/:giftId" element={<GiftDetail />} />
 
 
         {/* Existing test route just to keep user management functional */}
