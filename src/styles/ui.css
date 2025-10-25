@@ -1,0 +1,182 @@
+.ui-btn {
+display: inline-flex;
+align-items: center;
+justify-content: center;
+gap: var(--space-2);
+min-height: calc(var(--space-12) - var(--space-1));
+padding-block: var(--space-2);
+padding-inline: var(--space-4);
+border-radius: var(--radius-md);
+border: calc(var(--space-1) / 4) solid var(--color-surface);
+background: var(--color-surface);
+color: var(--color-text);
+font-family: var(--font-sans);
+font-size: var(--body-size);
+font-weight: var(--h3-weight);
+line-height: 1.2;
+cursor: pointer;
+transition:
+background var(--dur-med) var(--ease),
+color var(--dur-med) var(--ease),
+box-shadow var(--dur-med) var(--ease),
+transform var(--dur-fast) var(--ease),
+border-color var(--dur-med) var(--ease),
+opacity var(--dur-fast) var(--ease);
+outline: none;
+text-decoration: none;
+}
+
+.ui-btn--sm { padding-inline: var(--space-3); font-size: var(--caption-size); }
+.ui-btn--md { font-size: var(--body-size); }
+.ui-btn--lg { padding-inline: var(--space-5); font-size: var(--h3-size); }
+
+.ui-btn--primary {
+background: var(--color-accent);
+color: var(--color-surface);
+border-color: var(--color-accent);
+box-shadow: none;
+}
+
+.ui-btn--secondary {
+background: var(--color-surface);
+color: var(--color-text);
+border-color: var(--color-border);
+box-shadow: none;
+}
+
+.ui-btn--ghost {
+background: var(--color-surface);
+color: var(--color-accent);
+border-color: var(--color-accent-quiet);
+}
+
+.ui-btn:hover:not(:disabled) { box-shadow: var(--elev-1); }
+.ui-btn--secondary:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-accent-quiet); }
+.ui-btn--ghost:hover:not(:disabled) { background: var(--color-accent-quiet); border-color: var(--color-accent); box-shadow: var(--elev-1); }
+.ui-btn--ghost:active:not(:disabled) { background: var(--color-accent-quiet); border-color: var(--color-accent); box-shadow: var(--elev-2); }
+.ui-btn:active:not(:disabled) { transform: scale(0.98); box-shadow: var(--elev-2); }
+.ui-btn:focus-visible {
+outline: calc(var(--space-1) / 2) solid var(--focus-ring);
+outline-offset: calc(var(--space-1) / 2);
+}
+
+.ui-btn[disabled],
+.ui-btn[data-loading="true"] {
+opacity: 0.65;
+cursor: not-allowed;
+box-shadow: none;
+}
+
+.ui-btn__spinner {
+display: inline-block;
+width: var(--space-4);
+height: var(--space-4);
+border-radius: 50%;
+border: calc(var(--space-1) / 4) solid var(--color-accent-quiet);
+border-top-color: currentColor;
+animation: ui-spin var(--dur-med) linear infinite;
+}
+
+.ui-btn__label { display: inline-flex; align-items: center; gap: var(--space-1); }
+
+@keyframes ui-spin {
+0% { transform: rotate(0deg); }
+100% { transform: rotate(360deg); }
+}
+
+.ui-card {
+background: var(--color-surface);
+border-radius: var(--radius-md);
+border: calc(var(--space-1) / 4) solid var(--color-border);
+padding: var(--space-4);
+box-shadow: none;
+transition: box-shadow var(--dur-med) var(--ease), transform var(--dur-fast) var(--ease);
+}
+
+.ui-card:hover {
+box-shadow: var(--elev-1);
+transform: translateY(calc(var(--space-1) * -0.5));
+}
+
+.ui-card:active {
+transform: scale(0.99);
+box-shadow: var(--elev-2);
+}
+
+.ui-card:focus-visible {
+outline: calc(var(--space-1) / 2) solid var(--focus-ring);
+outline-offset: calc(var(--space-1) / 2);
+}
+
+.ui-input {
+width: 100%;
+min-height: calc(var(--space-12) - var(--space-1));
+padding-block: var(--space-2);
+padding-inline: var(--space-4);
+border-radius: var(--radius-md);
+border: calc(var(--space-1) / 4) solid var(--color-border);
+background: var(--color-surface);
+color: var(--color-text);
+font-family: var(--font-sans);
+font-size: var(--body-size);
+line-height: 1.4;
+transition: border-color var(--dur-med) var(--ease), box-shadow var(--dur-med) var(--ease), background var(--dur-med) var(--ease);
+}
+
+.ui-input::placeholder { color: var(--color-text-muted); }
+
+.ui-input:focus-visible {
+outline: calc(var(--space-1) / 2) solid var(--focus-ring);
+outline-offset: calc(var(--space-1) / 2);
+}
+
+.ui-input:disabled {
+background: var(--color-bg);
+cursor: not-allowed;
+opacity: 0.7;
+}
+
+.ui-input--error {
+border-color: var(--color-danger);
+}
+
+.ui-input--error:focus-visible {
+outline-color: var(--color-danger);
+}
+
+.ui-field {
+display: flex;
+flex-direction: column;
+gap: var(--space-1);
+}
+
+.ui-field__label {
+display: inline-flex;
+align-items: center;
+gap: var(--space-1);
+font-size: var(--body-size);
+font-weight: var(--h3-weight);
+color: var(--color-text);
+}
+
+.ui-field__description {
+margin: 0;
+color: var(--color-text-muted);
+font-size: var(--caption-size);
+}
+
+.ui-field__error {
+margin: 0;
+color: var(--color-danger);
+font-size: var(--caption-size);
+}
+
+.ui-field__required {
+color: var(--color-danger);
+font-size: var(--caption-size);
+}
+
+/*
+Example usage:
+<button class="ui-btn ui-btn--primary ui-btn--md">Save gift</button>
+*/
