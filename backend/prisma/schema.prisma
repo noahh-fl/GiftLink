@@ -12,33 +12,70 @@ model User {
   name      String
   email     String   @unique
   createdAt DateTime @default(now())
+  gifts     Gift[]
 }
 
 model Space {
-  id          Int      @id @default(autoincrement())
-  name        String
-  description String?
-  inviteCode  String   @unique
-  joinCode    String   @unique
-  mode        String
-  points      Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  gifts       Gift[]
+  id            Int            @id @default(autoincrement())
+  name          String
+  description   String?
+  inviteCode    String         @unique
+  joinCode      String         @unique
+  mode          String
+  points        Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  wishlistItems WishlistItem[]
 }
 
-model Gift {
+model WishlistItem {
   id         Int       @id @default(autoincrement())
-  name       String
-  url        String
-  image      String?
-  price      Float?
-  category   String?
-  confirmed  Boolean   @default(false)
   spaceId    Int
+  title      String
+  url        String?
+  image      String?
+  priceCents Int?
+  category   String?
+  notes      String?
+  priority   Priority  @default(MEDIUM)
+  archived   Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   space      Space     @relation(fields: [spaceId], references: [id])
+  gift       Gift?
+}
+
+model Gift {
+  id                Int         @id @default(autoincrement())
+  wishlistItemId    Int         @unique
+  giverId           Int?
+  status            GiftStatus  @default(PENDING)
+  sentimentPoints   Int?
+  pricePointsLocked Int?
+  reservedAt        DateTime?
+  purchasedAt       DateTime?
+  deliveredAt       DateTime?
+  receivedAt        DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  wishlistItem      WishlistItem @relation(fields: [wishlistItemId], references: [id])
+  giver             User?        @relation(fields: [giverId], references: [id])
+
+  @@index([wishlistItemId])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum GiftStatus {
+  PENDING
+  RESERVED
+  PURCHASED
+  DELIVERED
+  RECEIVED
 }
 
 // Test Plan:

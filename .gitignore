@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Test databases
+backend/prisma/test.db
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +25,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local SQLite DB
+backend/prisma/dev.db*
+backend/prisma/*.db*
