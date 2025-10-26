@@ -1221,30 +1221,43 @@ app.post("/gift/:id/receive", async (req, res) => {
       updateData.pricePointsLocked = pricePointsLocked ?? 0;
     }
 
-    const updated = await prisma.gift.update({
-      where: { id: giftId },
-      data: updateData,
-      include: {
-        wishlistItem: {
+    const { updatedGift, lifecyclePoints } = await prisma.$transaction(
+      async (tx) => {
+        const updatedGift = await tx.gift.update({
+          where: { id: giftId },
+          data: updateData,
           include: {
-            space: true,
+            wishlistItem: {
+              include: {
+                space: true,
+              },
+            },
           },
-        },
-      },
-    });
+        });
 
-    const points = resolvePointsForGift(
-      updated.wishlistItem.space.mode,
-      updated,
-      updated.wishlistItem,
+        const lifecyclePoints = resolvePointsForGift(
+          updatedGift.wishlistItem.space.mode,
+          updatedGift,
+          updatedGift.wishlistItem,
+        );
+
+        if (lifecyclePoints.points > 0) {
+          await tx.space.update({
+            where: { id: updatedGift.wishlistItem.space.id },
+            data: { points: { increment: lifecyclePoints.points } },
+          });
+        }
+
+        return { updatedGift, lifecyclePoints };
+      },
     );
 
     return res.status(200).send({
-      giftId: updated.id,
-      status: updated.status,
-      updatedAt: serializeDate(updated.updatedAt),
-      pointsAwarded: points.points,
-      mode: points.mode,
+      giftId: updatedGift.id,
+      status: updatedGift.status,
+      updatedAt: serializeDate(updatedGift.updatedAt),
+      pointsAwarded: lifecyclePoints.points,
+      mode: lifecyclePoints.mode,
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to mark gift as received");
