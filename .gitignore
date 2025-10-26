@@ -25,3 +25,7 @@ backend/prisma/test.db
 *.njsproj
 *.sln
 *.sw?
+
+# Local SQLite DB
+backend/prisma/dev.db*
+backend/prisma/*.db*
