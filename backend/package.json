@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "test": "NODE_ENV=test node --test",
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:seed": "node scripts/run-prisma-with-db-url.js db push && node scripts/run-prisma-with-db-url.js db seed"
   },
   "keywords": [],
   "author": "",
