@@ -27,6 +27,12 @@
   min-height: calc(2 * var(--space-6));
 }
 
+.app-header__nav {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
 .app-header__brand {
   display: flex;
   align-items: center;
