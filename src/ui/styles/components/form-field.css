@@ -1,0 +1,33 @@
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.form-field__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--h3-weight);
+  color: var(--color-text);
+}
+
+.form-field__hint {
+  margin: 0;
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+  color: var(--color-text-muted);
+}
+
+.form-field__error {
+  margin: 0;
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+  color: var(--color-danger);
+}
+
+.form-field__control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
