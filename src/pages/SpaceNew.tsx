@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import "./SpaceNew.css";
+import { apiFetch } from "../utils/api";
 
 type PointMode = "price" | "sentiment";
 
@@ -9,15 +11,13 @@ type Status =
   | { type: "success"; message: string }
   | { type: "error"; message: string };
 
-interface CreatedSpace {
+interface CreatedSpaceResponse {
   id: number;
   name: string;
-  description: string | null;
-  mode: PointMode;
-  createdAt: string;
+  joinCode: string;
+  pointMode?: PointMode;
+  mode?: PointMode;
 }
-
-const SPACE_ENDPOINT = "http://127.0.0.1:3000/space";
 
 export default function SpaceNew() {
   const [name, setName] = useState("");
@@ -26,6 +26,7 @@ export default function SpaceNew() {
   const [touched, setTouched] = useState({ name: false, mode: false });
   const [status, setStatus] = useState<Status>({ type: "idle" });
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const trimmedName = name.trim();
   const trimmedDesc = desc.trim();
@@ -58,9 +59,8 @@ export default function SpaceNew() {
     }
 
     try {
-      const response = await fetch(SPACE_ENDPOINT, {
+      const response = await apiFetch("/space", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -82,13 +82,30 @@ export default function SpaceNew() {
         throw new Error(message);
       }
 
-      const createdSpace = responseBody as CreatedSpace;
-      console.log("Created space:", createdSpace);
+      const createdSpace = responseBody as CreatedSpaceResponse;
+      const joinCode = createdSpace.joinCode;
+      let copied = false;
+
+      if (joinCode && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        try {
+          await navigator.clipboard.writeText(joinCode);
+          copied = true;
+        } catch (clipboardError) {
+          console.error("Failed to copy join code", clipboardError);
+        }
+      }
+
+      const successMessage = joinCode
+        ? `Space created! Share join code: ${joinCode}${copied ? " (copied)" : ""}`
+        : "Space created!";
+
+      alert(successMessage);
+      navigate(`/spaces/${createdSpace.id}`);
       setName("");
       setDesc("");
       setMode("");
       setTouched({ name: false, mode: false });
-      setStatus({ type: "success", message: "Space created successfully." });
+      setStatus({ type: "success", message: successMessage });
     } catch (error) {
       const message =
         error instanceof Error && error.message
