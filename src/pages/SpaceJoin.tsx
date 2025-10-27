@@ -109,7 +109,7 @@ export default function SpaceJoin() {
       pendingRef.current = null;
 
       if (/^[0-9]+$/.test(cleaned)) {
-        navigate(`/space/${cleaned}/gifts`);
+        navigate(`/spaces/${cleaned}/gifts`);
         return;
       }
 

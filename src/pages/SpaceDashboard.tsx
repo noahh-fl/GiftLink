@@ -35,11 +35,13 @@ export default function SpaceDashboard() {
     }
 
     let isCancelled = false;
+    const encodedSpaceId = encodeURIComponent(spaceId ?? "");
+
     async function loadSpace() {
       setLoadState("loading");
       setErrorMessage("");
       try {
-        const response = await apiFetch(`/space/${encodeURIComponent(spaceId)}`);
+        const response = await apiFetch(`/space/${encodedSpaceId}`);
         const body = await response.json().catch(() => null);
 
         if (!response.ok || !body || typeof body !== "object" || body === null) {

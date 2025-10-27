@@ -5,6 +5,7 @@ import HomeChoice from "./pages/HomeChoice";
 import SpaceNew from "./pages/SpaceNew";
 import GiftList from "./pages/GiftList";
 import SpaceDashboard from "./pages/SpaceDashboard";
+import SpaceJoin from "./pages/SpaceJoin";
 import SpaceWishlist from "./pages/SpaceWishlist";
 import SpacePointShop from "./pages/SpacePointShop";
 import SpaceLedger from "./pages/SpaceLedger";
@@ -79,6 +80,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomeChoice />} />
           <Route path="/space/new" element={<SpaceNew />} />
+          <Route path="/space/join" element={<SpaceJoin />} />
           <Route path="/spaces/:spaceId" element={<SpaceDashboard />} />
           <Route path="/spaces/:spaceId/wishlist" element={<SpaceWishlist />} />
           <Route path="/spaces/:spaceId/point-shop" element={<SpacePointShop />} />
