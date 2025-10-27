@@ -1,5 +1,8 @@
-import { useId, useState } from "react";
+import { useId } from "react";
 import type { ChangeEvent } from "react";
+import FormField from "../ui/components/FormField";
+import Input from "../ui/components/Input";
+import "../ui/styles/components/join-code-input.css";
 
 export const JOIN_CODE_MIN = 6;
 export const JOIN_CODE_MAX = 10;
@@ -117,126 +120,34 @@ export default function JoinCodeInput({
   label = "Invite code",
 }: JoinCodeInputProps) {
   const inputId = useId();
-  const hintId = `${inputId}-hint`;
-  const errorId = `${inputId}-error`;
-  const [isHovered, setIsHovered] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-
-  const describedBy = [hint ? hintId : undefined, error ? errorId : undefined]
-    .filter(Boolean)
-    .join(" ");
-
-  const controlBorderColor = error
-    ? "var(--color-danger)"
-    : isFocused
-      ? "var(--color-accent)"
-      : isHovered
-        ? "var(--color-text)"
-        : "var(--color-border)";
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     onChange(normalizeJoinCodeInput(event.target.value));
   }
 
   function handleBlur() {
-    setIsFocused(false);
     onBlur?.();
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-      <label
-        htmlFor={inputId}
-        style={{
-          fontWeight: "var(--h3-weight)",
-          color: "var(--color-text)",
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-1)",
-        }}
-      >
-        {label}
-        <span aria-hidden="true" style={{ color: "var(--color-accent)" }}>
-          *
-        </span>
-      </label>
-
-      <div
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        style={{
-          border: `1px solid ${controlBorderColor}`,
-          borderRadius: "var(--radius-md)",
-          background: "var(--color-surface)",
-          padding: "0 var(--space-4)",
-          minHeight: "52px",
-          display: "flex",
-          alignItems: "center",
-          transition: "border-color var(--dur-med) var(--ease), box-shadow var(--dur-med) var(--ease)",
-          boxShadow: isFocused ? "0 0 0 2px var(--focus-ring)" : isHovered ? "var(--elev-1)" : "none",
-        }}
-      >
-        <input
-          id={inputId}
-          type="text"
-          inputMode="text"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="go"
-          value={value}
-          onChange={handleChange}
-          onFocus={() => setIsFocused(true)}
-          onBlur={handleBlur}
-          disabled={disabled}
-          required
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy || undefined}
-          aria-required="true"
-          maxLength={JOIN_CODE_MAX}
-          style={{
-            border: "none",
-            background: "transparent",
-            width: "100%",
-            font: "inherit",
-            fontWeight: "var(--h3-weight)",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--color-text)",
-            padding: "var(--space-2) 0",
-            outline: "none",
-          }}
-        />
-      </div>
-
-      {hint && (
-        <p
-          id={hintId}
-          style={{
-            margin: 0,
-            fontSize: "var(--caption-size)",
-            fontWeight: "var(--caption-weight)",
-            color: "var(--color-text-muted)",
-          }}
-        >
-          {hint}
-        </p>
-      )}
-
-      {error && (
-        <p
-          id={errorId}
-          role="alert"
-          style={{
-            margin: 0,
-            fontSize: "var(--caption-size)",
-            fontWeight: "var(--caption-weight)",
-            color: "var(--color-danger)",
-          }}
-        >
-          {error}
-        </p>
-      )}
-    </div>
+    <FormField label={label} htmlFor={inputId} required hint={hint} error={error}>
+      <Input
+        id={inputId}
+        type="text"
+        inputMode="text"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="go"
+        value={value}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        disabled={disabled}
+        hasError={Boolean(error)}
+        aria-required="true"
+        maxLength={JOIN_CODE_MAX}
+        className="join-code-input__control"
+      />
+    </FormField>
   );
 }

@@ -39,7 +39,7 @@ export default function SpaceDashboard() {
       setLoadState("loading");
       setErrorMessage("");
       try {
-        const response = await apiFetch(`/space/${encodeURIComponent(spaceId)}`);
+        const response = await apiFetch(`/space/${encodeURIComponent(spaceId ?? "")}`);
         const body = await response.json().catch(() => null);
 
         if (!response.ok || !body || typeof body !== "object" || body === null) {

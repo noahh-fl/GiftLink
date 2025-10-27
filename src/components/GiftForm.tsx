@@ -1,5 +1,9 @@
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import Button from "../ui/components/Button";
+import FormField from "../ui/components/FormField";
+import Input from "../ui/components/Input";
+import { useToast } from "../contexts/ToastContext";
 import type { Gift } from "../types/gift";
 import "./GiftForm.css";
 
@@ -21,6 +25,7 @@ export function GiftForm({ spaceId, onGiftCreated }: GiftFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<Status>({ type: "idle" });
   const [touched, setTouched] = useState({ name: false, url: false });
+  const { showToast } = useToast();
 
   const trimmedName = name.trim();
   const trimmedUrl = url.trim();
@@ -85,12 +90,14 @@ export function GiftForm({ spaceId, onGiftCreated }: GiftFormProps) {
       setCategory("");
       setTouched({ name: false, url: false });
       setStatus({ type: "success", message: "Gift added to the space." });
+      showToast({ intent: "success", description: "Gift added to the wishlist." });
     } catch (error) {
       const message =
         error instanceof Error && error.message
           ? error.message
           : "Unable to add gift. Please try again.";
       setStatus({ type: "error", message });
+      showToast({ intent: "error", description: message });
     } finally {
       setSubmitting(false);
     }
@@ -114,92 +121,67 @@ export function GiftForm({ spaceId, onGiftCreated }: GiftFormProps) {
         noValidate
         aria-describedby={status.type !== "idle" ? "gift-form-status" : undefined}
       >
-        <div className="gift-form__field">
-          <label className="gift-form__label" htmlFor="gift-name">
-            Gift name <span aria-hidden="true">*</span>
-          </label>
-          <input
-            id="gift-name"
-            type="text"
-            className={`gift-form__input${errors.name ? " gift-form__input--error" : ""}`}
+        <FormField
+          label="Gift name"
+          htmlFor="gift-name"
+          required
+          error={errors.name}
+        >
+          <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => setTouched((prev) => ({ ...prev, name: true }))}
-            aria-invalid={errors.name ? true : undefined}
-            aria-describedby={errors.name ? "gift-name-error" : undefined}
-            required
+            placeholder="LEGO Treehouse"
+            hasError={Boolean(errors.name)}
           />
-          {errors.name && (
-            <p id="gift-name-error" className="gift-form__error" role="alert">
-              {errors.name}
-            </p>
-          )}
-        </div>
+        </FormField>
 
-        <div className="gift-form__field">
-          <label className="gift-form__label" htmlFor="gift-url">
-            Gift URL <span aria-hidden="true">*</span>
-          </label>
-          <input
-            id="gift-url"
+        <FormField
+          label="Gift URL"
+          htmlFor="gift-url"
+          required
+          error={errors.url}
+        >
+          <Input
             type="url"
-            className={`gift-form__input${errors.url ? " gift-form__input--error" : ""}`}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             onBlur={() => setTouched((prev) => ({ ...prev, url: true }))}
-            aria-invalid={errors.url ? true : undefined}
-            aria-describedby={errors.url ? "gift-url-error" : undefined}
+            placeholder="https://example.com/gift"
+            hasError={Boolean(errors.url)}
             inputMode="url"
-            required
           />
-          {errors.url && (
-            <p id="gift-url-error" className="gift-form__error" role="alert">
-              {errors.url}
-            </p>
-          )}
-        </div>
+        </FormField>
 
         <div className="gift-form__field-row">
-          <div className="gift-form__field gift-form__field--grow">
-            <label className="gift-form__label" htmlFor="gift-price">
-              Price
-              <span className="gift-form__optional">optional</span>
-            </label>
-            <input
-              id="gift-price"
+          <FormField label="Price" htmlFor="gift-price" hint="Optional">
+            <Input
               type="number"
               min="0"
               step="0.01"
-              className="gift-form__input"
               value={price}
               onChange={(event) => setPrice(event.target.value)}
+              hasError={false}
               inputMode="decimal"
             />
-          </div>
-          <div className="gift-form__field gift-form__field--grow">
-            <label className="gift-form__label" htmlFor="gift-category">
-              Category
-              <span className="gift-form__optional">optional</span>
-            </label>
-            <input
-              id="gift-category"
-              type="text"
-              className="gift-form__input"
+          </FormField>
+          <FormField label="Category" htmlFor="gift-category" hint="Optional">
+            <Input
               value={category}
               onChange={(event) => setCategory(event.target.value)}
+              hasError={false}
             />
-          </div>
+          </FormField>
         </div>
 
         <div className="gift-form__actions">
-          <button
+          <Button
             type="submit"
-            className="gift-form__submit"
             disabled={submitting}
-            aria-busy={submitting ? "true" : "false"}
+            aria-busy={submitting ? "true" : undefined}
           >
             {submitting ? "Adding…" : "Add Gift"}
-          </button>
+          </Button>
         </div>
       </form>
 

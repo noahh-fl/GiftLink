@@ -1,0 +1,5 @@
+.join-code-input__control {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: var(--h3-weight);
+}

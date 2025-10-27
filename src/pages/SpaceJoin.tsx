@@ -1,84 +1,29 @@
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import JoinCodeInput, { validateJoinCode } from "../components/JoinCodeInput";
+import Button from "../ui/components/Button";
+import { useToast } from "../contexts/ToastContext";
+import { useSpace } from "../contexts/SpaceContext";
+import { apiFetch } from "../utils/api";
+import "./SpaceJoin.css";
 
 type Status =
   | { type: "idle" }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
-const SCREENSHOT_URL = "https://github.com/noahflewelling/giftlink/wiki/SpaceJoin-Preview";
-const SAMPLE_CODES = ["GL-8273", "739402"];
-
-const pageStyle: CSSProperties = {
-  minHeight: "100vh",
-  background: "var(--color-bg)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "var(--space-12) var(--space-4)",
-};
-
-const panelStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: "640px",
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-8)",
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-6)",
-  transition: "box-shadow var(--dur-med) var(--ease), transform var(--dur-med) var(--ease)",
-};
-
-const headerStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-2)",
-};
-
-const formStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-4)",
-};
-
-const exampleSectionStyle: CSSProperties = {
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-4)",
-  background: "var(--color-bg)",
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-3)",
-};
-
 export default function SpaceJoin() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { setActiveSpace } = useSpace();
   const [inviteCode, setInviteCode] = useState("");
   const [touched, setTouched] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [panelHovered, setPanelHovered] = useState(false);
-  const [buttonHovered, setButtonHovered] = useState(false);
-  const [buttonFocused, setButtonFocused] = useState(false);
   const [status, setStatus] = useState<Status>({ type: "idle" });
-  const [exampleLinkFocused, setExampleLinkFocused] = useState(false);
-  const pendingRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pendingRef.current) {
-        window.clearTimeout(pendingRef.current);
-      }
-    };
-  }, []);
 
   const validation = validateJoinCode(inviteCode);
-  const isValid = validation.isValid;
   const inlineError = touched && !validation.isValid ? validation.message : "";
-
   const statusId = status.type !== "idle" ? "space-join-status" : undefined;
 
   function handleCodeChange(nextValue: string) {
@@ -88,7 +33,7 @@ export default function SpaceJoin() {
     setInviteCode(nextValue);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTouched(true);
 
@@ -99,66 +44,69 @@ export default function SpaceJoin() {
     setLoading(true);
     setStatus({ type: "info", message: "Checking invite code..." });
 
-    if (pendingRef.current) {
-      window.clearTimeout(pendingRef.current);
-    }
-
     const cleaned = validation.cleaned;
 
-    pendingRef.current = window.setTimeout(() => {
-      pendingRef.current = null;
+    try {
+      const response = await apiFetch("/space/join", {
+        method: "POST",
+        body: JSON.stringify({ code: cleaned }),
+      });
 
-      if (/^[0-9]+$/.test(cleaned)) {
-        navigate(`/space/${cleaned}/gifts`);
-        return;
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const message =
+          body && typeof body === "object" && "message" in body && typeof body.message === "string"
+            ? body.message
+            : "We couldn't find that invite.";
+        throw new Error(message);
       }
 
+      const space =
+        body && typeof body === "object" && "space" in body
+          ? (body.space as { id?: unknown; name?: unknown })
+          : body;
+
+      const spaceId =
+        space && typeof space === "object" && "id" in space && typeof space.id === "string"
+          ? space.id
+          : typeof space?.id === "number"
+            ? String(space.id)
+            : cleaned;
+
+      const spaceName =
+        space && typeof space === "object" && "name" in space && typeof space.name === "string"
+          ? space.name
+          : "";
+
+      setActiveSpace({ id: spaceId, name: spaceName });
+      showToast({ intent: "success", description: "Joined space. Redirecting to dashboard." });
+      navigate("/dashboard", { replace: true });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "Unable to join that space.";
+      setStatus({ type: "error", message });
+      showToast({ intent: "error", description: message });
+    } finally {
       setLoading(false);
-      setStatus({
-        type: "error",
-        message: "Invalid or unsupported code",
-      });
-    }, 350);
+    }
   }
 
-  const buttonDisabled = !isValid || loading;
-
   return (
-    <main style={pageStyle}>
-      <section
-        aria-labelledby="space-join-heading"
-        style={{
-          ...panelStyle,
-          boxShadow: panelHovered ? "var(--elev-2)" : "var(--elev-1)",
-          transform: panelHovered ? "translateY(-2px)" : "translateY(0)",
-        }}
-        onMouseEnter={() => setPanelHovered(true)}
-        onMouseLeave={() => setPanelHovered(false)}
-      >
-        <header style={headerStyle}>
-          <p
-            style={{
-              fontSize: "var(--caption-size)",
-              fontWeight: "var(--caption-weight)",
-              textTransform: "uppercase",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            GiftLink Spaces
-          </p>
-          <h1 id="space-join-heading">Join an existing space</h1>
-          <p style={{ color: "var(--color-text-muted)", lineHeight: 1.5 }}>
-            Enter the invite code that was shared with you. We&apos;ll verify it instantly and
-            route you straight into the shared wishlist.
+    <main className="space-join">
+      <section className="space-join__panel" aria-labelledby="space-join-heading">
+        <header className="space-join__header">
+          <p className="space-join__eyebrow">GiftLink Spaces</p>
+          <h1 id="space-join-heading" className="space-join__title">
+            Join an existing space
+          </h1>
+          <p className="space-join__subtitle">
+            Enter the invite code that was shared with you. We'll verify it and redirect you to the
+            dashboard.
           </p>
         </header>
 
-        <form
-          style={formStyle}
-          onSubmit={handleSubmit}
-          noValidate
-          aria-describedby={statusId}
-        >
+        <form className="space-join__form" onSubmit={handleSubmit} noValidate aria-describedby={statusId}>
           <JoinCodeInput
             value={inviteCode}
             onChange={handleCodeChange}
@@ -167,118 +115,23 @@ export default function SpaceJoin() {
             error={inlineError}
           />
 
-          <button
-            type="submit"
-            disabled={buttonDisabled}
-            aria-busy={loading}
-            onMouseEnter={() => setButtonHovered(true)}
-            onMouseLeave={() => setButtonHovered(false)}
-            onFocus={() => setButtonFocused(true)}
-            onBlur={() => setButtonFocused(false)}
-            style={{
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "0 var(--space-5)",
-              minHeight: "52px",
-              fontWeight: "var(--h3-weight)",
-              fontSize: "var(--body-size)",
-              background: buttonDisabled ? "var(--color-border)" : "var(--color-accent)",
-              color: buttonDisabled ? "var(--color-text-muted)" : "var(--color-surface)",
-              cursor: buttonDisabled ? "not-allowed" : "pointer",
-              transition:
-                "transform var(--dur-fast) var(--ease), box-shadow var(--dur-med) var(--ease), background var(--dur-med) var(--ease)",
-              boxShadow:
-                buttonDisabled || (!buttonHovered && !buttonFocused)
-                  ? "var(--elev-1)"
-                  : "var(--elev-2)",
-              transform: buttonHovered && !buttonDisabled ? "translateY(-1px)" : "translateY(0)",
-              outline: buttonFocused ? "2px solid var(--focus-ring)" : "none",
-              outlineOffset: "2px",
-            }}
-          >
-            {loading ? "Checking..." : "Continue to space"}
-          </button>
+          <div className="space-join__actions">
+            <Button type="submit" disabled={loading || !validation.isValid} aria-busy={loading || undefined}>
+              {loading ? "Checking…" : "Continue"}
+            </Button>
+          </div>
 
           {status.type !== "idle" && (
             <p
               id={statusId}
+              className={`space-join__status${status.type === "error" ? " space-join__status--error" : ""}`}
               role={status.type === "error" ? "alert" : "status"}
               aria-live="polite"
-              style={{
-                margin: 0,
-                fontSize: "var(--caption-size)",
-                fontWeight: "var(--caption-weight)",
-                color:
-                  status.type === "error" ? "var(--color-danger)" : "var(--color-text-muted)",
-              }}
             >
               {status.message}
             </p>
           )}
         </form>
-
-        <section
-          aria-labelledby="space-join-example-heading"
-          style={exampleSectionStyle}
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-            <p
-              id="space-join-example-heading"
-              style={{
-                fontWeight: "var(--h3-weight)",
-                color: "var(--color-text)",
-                margin: 0,
-              }}
-            >
-              In-page example
-            </p>
-            <p style={{ margin: 0, color: "var(--color-text-muted)", lineHeight: 1.4 }}>
-              Try one of these sample codes to preview the validation states.
-            </p>
-            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
-              {SAMPLE_CODES.map((code) => (
-                <span
-                  key={code}
-                  style={{
-                    borderRadius: "var(--radius-sm)",
-                    padding: "var(--space-2) var(--space-3)",
-                    background: "var(--color-accent-quiet)",
-                    color: "var(--color-text)",
-                    fontWeight: "var(--h3-weight)",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  {code}
-                </span>
-              ))}
-            </div>
-            <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--caption-size)" }}>
-              Screenshot link below shows the full flow for release notes.
-            </p>
-          </div>
-
-          <a
-            href={SCREENSHOT_URL}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--space-1)",
-              fontWeight: "var(--h3-weight)",
-              color: "var(--color-accent)",
-              borderRadius: "var(--radius-sm)",
-              padding: "var(--space-2) var(--space-3)",
-              minHeight: "44px",
-              outline: exampleLinkFocused ? "2px solid var(--focus-ring)" : "none",
-              outlineOffset: "2px",
-            }}
-            onFocus={() => setExampleLinkFocused(true)}
-            onBlur={() => setExampleLinkFocused(false)}
-          >
-            View latest screenshot (opens in new tab)
-          </a>
-        </section>
       </section>
     </main>
   );
