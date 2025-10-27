@@ -1,84 +1,120 @@
-import { useMemo, type CSSProperties } from "react";
-import { useParams } from "react-router-dom";
-import SpaceHeader from "../components/SpaceHeader";
-import GiftListCard from "../components/GiftListCard";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { apiFetch } from "../utils/api";
 
-interface SpaceMember {
-  id: string;
+type SpaceSummary = {
+  id: number;
   name: string;
-  initials: string;
-}
-
-interface SpaceSummary {
-  id: string;
-  name: string;
-  inviteCode: string;
-  gifts: string[];
-  members: SpaceMember[];
-}
-
-const mockSpaces: Record<string, SpaceSummary> = {
-  aurora: {
-    id: "aurora",
-    name: "Aurora Family Space",
-    inviteCode: "AUR-2024",
-    gifts: [],
-    members: [
-      { id: "1", name: "Avery Lin", initials: "AL" },
-      { id: "2", name: "Noah Diaz", initials: "ND" },
-      { id: "3", name: "Riley Chen", initials: "RC" },
-      { id: "4", name: "Maya Patel", initials: "MP" },
-    ],
-  },
+  joinCode: string;
+  pointMode?: string;
+  mode?: string;
 };
 
-const cardShell: CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-5)",
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-4)",
-};
+type LoadState = "idle" | "loading" | "error" | "ready";
 
-const secondaryButton: CSSProperties = {
-  background: "var(--color-accent-quiet)",
-  color: "var(--color-accent)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "0 var(--space-5)",
-  minHeight: "var(--space-12)",
-  fontSize: "var(--body-size)",
-  fontWeight: "var(--h3-weight)",
-  cursor: "pointer",
-  transition: "background var(--dur-med) var(--ease)",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
+type CopyState = "idle" | "copied" | "error";
 
 export default function SpaceDashboard() {
-  const { id } = useParams<{ id: string }>();
+  const { spaceId } = useParams<{ spaceId: string }>();
+  const [space, setSpace] = useState<SpaceSummary | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [copyState, setCopyState] = useState<CopyState>("idle");
+  const numericId = useMemo(() => {
+    if (!spaceId) {
+      return null;
+    }
+    const parsed = Number.parseInt(spaceId, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [spaceId]);
+  const navSpaceId = space
+    ? String(space.id)
+    : numericId
+    ? String(numericId)
+    : spaceId
+    ? spaceId
+    : "";
 
-  const space = useMemo(() => {
-    if (id && mockSpaces[id]) {
-      return mockSpaces[id];
+  useEffect(() => {
+    if (!numericId) {
+      setLoadState("error");
+      setErrorMessage("Space id is missing or invalid.");
+      return;
     }
 
-    return { ...mockSpaces.aurora, id: id ?? mockSpaces.aurora.id };
-  }, [id]);
+    let isCancelled = false;
+    async function loadSpace() {
+      setLoadState("loading");
+      setErrorMessage("");
+      try {
+        const response = await apiFetch(`/spaces/${numericId}`);
+        const body = await response.json().catch(() => null);
 
-  const handleAddGift = () => {
-    console.info("Add gift action (stub)", space.id);
-  };
+        if (!response.ok || !body || typeof body !== "object" || body === null) {
+          const apiMessage =
+            body &&
+            typeof body === "object" &&
+            body !== null &&
+            "message" in body &&
+            typeof (body as { message?: unknown }).message === "string"
+              ? ((body as { message: string }).message || "Failed to load space.")
+              : "Failed to load space.";
+          throw new Error(apiMessage);
+        }
 
-  const handleInvite = () => {
-    console.info("Invite action (stub)", space.inviteCode);
-  };
+        const received = (body as { space?: SpaceSummary }).space ?? (body as SpaceSummary);
+        if (
+          !received ||
+          typeof received !== "object" ||
+          typeof (received as { id?: unknown }).id !== "number" ||
+          typeof (received as { joinCode?: unknown }).joinCode !== "string"
+        ) {
+          throw new Error("Space data is unavailable.");
+        }
 
-  const handleManageMembers = () => {
-    console.info("Manage members action (stub)", space.id);
+        if (!isCancelled) {
+          setSpace(received as SpaceSummary);
+          setLoadState("ready");
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setLoadState("error");
+          setErrorMessage(
+            error instanceof Error && error.message ? error.message : "Failed to load space.",
+          );
+        }
+      }
+    }
+
+    loadSpace();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [numericId]);
+
+  useEffect(() => {
+    setCopyState("idle");
+  }, [space?.joinCode]);
+
+  const handleCopy = async () => {
+    if (!space?.joinCode) {
+      return;
+    }
+
+    setCopyState("idle");
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+      setCopyState("error");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(space.joinCode);
+      setCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy join code", error);
+      setCopyState("error");
+    }
   };
 
   return (
@@ -87,129 +123,222 @@ export default function SpaceDashboard() {
         background: "var(--color-bg)",
         minHeight: "100vh",
         padding: "var(--space-6)",
+        color: "var(--color-text)",
       }}
     >
       <div
         style={{
-          maxWidth: "1200px",
           margin: "0 auto",
+          maxWidth: "720px",
           display: "flex",
           flexDirection: "column",
-          gap: "var(--space-6)",
+          gap: "var(--space-5)",
         }}
       >
-        <SpaceHeader name={space.name} inviteCode={space.inviteCode} />
+        <header>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--color-text-muted)",
+              fontSize: "var(--caption-size)",
+              fontWeight: "var(--caption-weight)",
+            }}
+          >
+            Space overview
+          </p>
+          <h1
+            style={{
+              margin: "var(--space-2) 0",
+              fontSize: "var(--h2-size)",
+              fontWeight: "var(--h2-weight)",
+            }}
+          >
+            {space?.name ?? "Loading space"}
+          </h1>
+          {space?.pointMode || space?.mode ? (
+            <p
+              style={{
+                margin: 0,
+                color: "var(--color-text-muted)",
+              }}
+            >
+              Point mode: {(space.pointMode ?? space.mode ?? "").toString()}
+            </p>
+          ) : null}
+        </header>
 
-        <div
+        <section
           style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(calc(var(--space-12) * 7), 1fr))",
-            gap: "var(--space-5)",
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-5)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-4)",
           }}
         >
-          <GiftListCard
-            giftCount={space.gifts.length}
-            spaceId={space.id}
-            spaceName={space.name}
-            onAddGift={handleAddGift}
-          />
-
-          <section style={cardShell} aria-label="Members">
-            <div
+          <div>
+            <h2
               style={{
-                display: "flex",
-                justifyContent: "space-between",
+                margin: 0,
+                fontSize: "var(--h3-size)",
+                fontWeight: "var(--h3-weight)",
+              }}
+            >
+              Join code
+            </h2>
+            <p
+              style={{
+                margin: "var(--space-2) 0 0",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              Share this with your group so they can join the space.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--space-3)",
+              alignItems: "center",
+            }}
+          >
+            <code
+              style={{
+                fontSize: "var(--h3-size)",
+                fontWeight: "var(--h3-weight)",
+                background: "var(--color-accent-quiet)",
+                borderRadius: "var(--radius-sm)",
+                padding: "var(--space-2) var(--space-3)",
+              }}
+            >
+              {space?.joinCode ?? "—"}
+            </code>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="focus-ring"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-surface)",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "0 var(--space-5)",
+                height: "var(--space-12)",
+                cursor: "pointer",
+                fontSize: "var(--body-size)",
+                fontWeight: "var(--h3-weight)",
+                display: "inline-flex",
                 alignItems: "center",
+                justifyContent: "center",
+                transition: "background var(--dur-med) var(--ease)",
               }}
             >
-              <div>
-                <h2 style={{ margin: 0 }}>Members</h2>
-                <p
-                  style={{
-                    margin: 0,
-                    marginTop: "var(--space-1)",
-                    color: "var(--color-text-muted)",
-                  }}
-                >
-                  {space.members.length} joined
-                </p>
-              </div>
-              <button
-                type="button"
-                className="focus-ring"
-                onClick={handleManageMembers}
-                style={secondaryButton}
-                aria-label="Manage members"
-              >
-                Manage members
-              </button>
-            </div>
+              Copy code
+            </button>
+            <span
+              role="status"
+              aria-live="polite"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              {copyState === "copied"
+                ? "Copied!"
+                : copyState === "error"
+                ? "Unable to copy"
+                : ""}
+            </span>
+          </div>
+        </section>
 
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--space-3)",
-                flexWrap: "wrap",
-              }}
-            >
-              {space.members.slice(0, 4).map((member) => (
-                <div
-                  key={member.id}
-                  title={member.name}
-                  aria-label={member.name}
-                  style={{
-                    width: "var(--space-12)",
-                    height: "var(--space-12)",
-                    borderRadius: "var(--radius-lg)",
-                    background: "var(--color-accent-quiet)",
-                    color: "var(--color-accent)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: "var(--h3-weight)",
-                  }}
-                >
-                  {member.initials}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section style={cardShell} aria-label="Quick actions">
-            <h2 style={{ margin: 0 }}>Quick actions</h2>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-3)",
-              }}
-            >
-              <button
-                type="button"
+        <nav aria-label="Space navigation">
+          <ul
+            style={{
+              listStyle: "none",
+              padding: 0,
+              margin: 0,
+              display: "grid",
+              gap: "var(--space-3)",
+            }}
+          >
+            <li>
+              <Link
+                to={`/spaces/${navSpaceId}/wishlist`}
                 className="focus-ring"
-                onClick={handleAddGift}
                 style={{
-                  ...secondaryButton,
-                  background: "var(--color-accent)",
-                  color: "var(--color-surface)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  textDecoration: "none",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  padding: "var(--space-4) var(--space-5)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  fontWeight: "var(--h3-weight)",
                 }}
-                aria-label="Add a new gift"
               >
-                Add gift
-              </button>
-              <button
-                type="button"
+                <span>Wishlist</span>
+                <span aria-hidden="true">→</span>
+              </Link>
+            </li>
+            <li>
+              <Link
+                to={`/spaces/${navSpaceId}/point-shop`}
                 className="focus-ring"
-                onClick={handleInvite}
-                style={secondaryButton}
-                aria-label="Invite someone"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  textDecoration: "none",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  padding: "var(--space-4) var(--space-5)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  fontWeight: "var(--h3-weight)",
+                }}
               >
-                Invite
-              </button>
-            </div>
-          </section>
-        </div>
+                <span>Point Shop</span>
+                <span aria-hidden="true">→</span>
+              </Link>
+            </li>
+            <li>
+              <Link
+                to={`/spaces/${navSpaceId}/ledger`}
+                className="focus-ring"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  textDecoration: "none",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  padding: "var(--space-4) var(--space-5)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  fontWeight: "var(--h3-weight)",
+                }}
+              >
+                <span>Ledger</span>
+                <span aria-hidden="true">→</span>
+              </Link>
+            </li>
+          </ul>
+        </nav>
+
+        {loadState === "loading" ? (
+          <p role="status" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+            Loading space details…
+          </p>
+        ) : null}
+        {loadState === "error" ? (
+          <p role="alert" style={{ color: "var(--color-danger)" }}>
+            {errorMessage}
+          </p>
+        ) : null}
       </div>
     </main>
   );

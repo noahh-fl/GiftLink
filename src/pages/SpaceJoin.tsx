@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import JoinCodeInput, { validateJoinCode } from "../components/JoinCodeInput";
 
@@ -10,7 +11,7 @@ type Status =
 const SCREENSHOT_URL = "https://github.com/noahflewelling/giftlink/wiki/SpaceJoin-Preview";
 const SAMPLE_CODES = ["GL-8273", "739402"];
 
-const pageStyle = {
+const pageStyle: CSSProperties = {
   minHeight: "100vh",
   background: "var(--color-bg)",
   display: "flex",
@@ -19,7 +20,7 @@ const pageStyle = {
   padding: "var(--space-12) var(--space-4)",
 };
 
-const panelStyle = {
+const panelStyle: CSSProperties = {
   width: "100%",
   maxWidth: "640px",
   background: "var(--color-surface)",
@@ -32,19 +33,19 @@ const panelStyle = {
   transition: "box-shadow var(--dur-med) var(--ease), transform var(--dur-med) var(--ease)",
 };
 
-const headerStyle = {
+const headerStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-2)",
 };
 
-const formStyle = {
+const formStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-4)",
 };
 
-const exampleSectionStyle = {
+const exampleSectionStyle: CSSProperties = {
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-4)",
