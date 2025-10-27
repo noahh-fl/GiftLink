@@ -2,6 +2,13 @@
 
 ## Wishlist & Gift Lifecycle API
 
+### Peekalink metadata proxy
+`POST /metadata/peekalink`
+
+Requires a `PEEKALINK_API_KEY` environment variable. Accepts `{ "link": "https://www.amazon.com/..." }` and returns
+`{ "title": string | null, "image": string | null, "price": number | string | null }` so the frontend can auto-fill wishlist
+details. The service logs metadata responses for debugging and falls back to empty fields on failure.
+
 ### Create a wishlist item
 `POST /wishlist`
 

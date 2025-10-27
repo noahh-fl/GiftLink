@@ -29,6 +29,62 @@ app.post("/user", async (req, res) => {
   return user;
 });
 
+app.post("/metadata/peekalink", async (req, res) => {
+  const { link } = req.body ?? {};
+
+  const preparedLink = typeof link === "string" ? link.trim() : "";
+
+  if (!preparedLink) {
+    return res.status(400).send({ title: null, image: null, price: null });
+  }
+
+  const apiKey = process.env.PEEKALINK_API_KEY;
+
+  if (!apiKey) {
+    req.log.error("PEEKALINK_API_KEY is not configured.");
+    return res.status(500).send({ title: null, image: null, price: null });
+  }
+
+  try {
+    const response = await fetch("https://api.peekalink.io/", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ link: preparedLink }),
+    });
+
+    if (!response.ok) {
+      req.log.error({ statusCode: response.status }, "Peekalink request failed.");
+      return res.status(502).send({ title: null, image: null, price: null });
+    }
+
+    const payload = await response.json();
+
+    const metadata = {
+      title: typeof payload?.title === "string" ? payload.title : null,
+      image:
+        typeof payload?.image?.url === "string" && payload.image.url.trim()
+          ? payload.image.url
+          : null,
+      price:
+        typeof payload?.price?.value === "number"
+          ? payload.price.value
+          : typeof payload?.price?.value === "string"
+            ? payload.price.value
+            : null,
+    };
+
+    req.log.info({ link: preparedLink, metadata }, "Peekalink metadata retrieved");
+
+    return metadata;
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to fetch metadata from Peekalink");
+    return res.status(502).send({ title: null, image: null, price: null });
+  }
+});
+
 const SPACE_MODES = new Set(["price", "sentiment"]);
 
 const INVITE_CODE_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
