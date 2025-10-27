@@ -1,0 +1,30 @@
+.gl-input {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-sans);
+  font-size: var(--body-size);
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  min-height: 44px;
+}
+
+.gl-input--block {
+  width: 100%;
+}
+
+.gl-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.gl-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.gl-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

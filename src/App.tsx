@@ -1,127 +1,50 @@
-import { useEffect, useState } from "react";
-import axios from "axios";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import HomeChoice from "./pages/HomeChoice";
-import SpaceNew from "./pages/SpaceNew";
-import GiftList from "./pages/GiftList";
+import { Link, Route, Routes } from "react-router-dom";
 import AppShell from "./ui/components/AppShell";
-import "./ui/tokens/tokens.css";
-import "./ui/styles/base.css";
+import Button from "./ui/components/Button";
+import { useSpace } from "./contexts/SpaceContext";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+import WishlistPage from "./pages/wishlist/WishlistPage";
+import BrowsePage from "./pages/browse/BrowsePage";
+import GiftDetailPage from "./pages/gift/GiftDetailPage";
+import PointShopPage from "./pages/shop/PointShopPage";
+import LedgerPage from "./pages/ledger/LedgerPage";
+import SettingsPage from "./pages/settings/SettingsPage";
 
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  createdAt: string;
-}
+const NAV_LINKS = [
+  { to: "/", label: "Dashboard" },
+  { to: "/wishlist", label: "Wishlist" },
+  { to: "/browse", label: "Browse" },
+  { to: "/shop", label: "Point shop" },
+  { to: "/ledger", label: "Ledger" },
+  { to: "/settings", label: "Settings" },
+];
 
 function App() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  // Fetch users on load
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const fetchUsers = async () => {
-    try {
-      const res = await axios.get("http://127.0.0.1:3000/users");
-      setUsers(res.data);
-    } catch (err) {
-      console.error("Error fetching users:", err);
-    }
-  };
-
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !email) return alert("Please fill out both fields.");
-
-    setLoading(true);
-    try {
-      await axios.post("http://127.0.0.1:3000/user", { name, email });
-      setName("");
-      setEmail("");
-      fetchUsers(); // refresh list
-    } catch (err: unknown) {
-      const message =
-        typeof err === "object" &&
-        err !== null &&
-        "response" in err &&
-        (err as { response?: { data?: { message?: string } } }).response?.data
-          ?.message;
-      if (typeof message === "string" && message.includes("Unique constraint")) {
-        alert("That email is already registered.");
-      } else {
-        alert("Error adding user. Check the console.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { activeSpace } = useSpace();
 
   const headerActions = (
-    <Link to="/users" className="app-header__action">
-      Manage users
-    </Link>
+    <>
+      <span aria-live="polite" className="app-header__balance">
+        {activeSpace?.points ?? 0} pts
+      </span>
+      <Button asChild variant="secondary">
+        <Link to="/wishlist">Add gift</Link>
+      </Button>
+    </>
   );
 
   return (
-    <Router>
-      <AppShell headerActions={headerActions}>
-        <Routes>
-          <Route path="/" element={<HomeChoice />} />
-          <Route path="/space/new" element={<SpaceNew />} />
-          <Route path="/space/:id/gifts" element={<GiftList />} />
-          <Route
-            path="/users"
-            element={
-              <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-                <h1>GiftLink Users</h1>
-
-                <form onSubmit={handleAddUser} style={{ marginBottom: "1.5rem" }}>
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    style={{ marginRight: "0.5rem", padding: "0.5rem" }}
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    style={{ marginRight: "0.5rem", padding: "0.5rem" }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    style={{ padding: "0.5rem 1rem" }}
-                  >
-                    {loading ? "Adding..." : "Add User"}
-                  </button>
-                </form>
-
-                {users.length === 0 ? (
-                  <p>No users yet.</p>
-                ) : (
-                  <ul>
-                    {users.map((u) => (
-                      <li key={u.id}>
-                        <strong>{u.name}</strong> — {u.email}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            }
-          />
-        </Routes>
-      </AppShell>
-    </Router>
+    <AppShell navLinks={NAV_LINKS} headerActions={headerActions}>
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/wishlist" element={<WishlistPage />} />
+        <Route path="/browse" element={<BrowsePage />} />
+        <Route path="/gift/:id" element={<GiftDetailPage />} />
+        <Route path="/shop" element={<PointShopPage />} />
+        <Route path="/ledger" element={<LedgerPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>
+    </AppShell>
   );
 }
 

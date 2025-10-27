@@ -1,0 +1,215 @@
+.wishlist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.wishlist__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.wishlist__subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.wishlist__form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.wishlist__manual-fields {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.wishlist__form-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.wishlist__error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.wishlist__filters {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.wishlist__filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.wishlist__filter-label {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.wishlist__segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.wishlist__segment {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.wishlist__segment:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.wishlist__segment--active {
+  background: var(--color-accent-quiet);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.wishlist__select {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.wishlist__grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.wishlist__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.wishlist-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.wishlist-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.wishlist-card__title {
+  margin: 0;
+  font-size: var(--h3-size);
+}
+
+.wishlist-card__title a {
+  color: inherit;
+}
+
+.wishlist-card__title a:hover,
+.wishlist-card__title a:focus-visible {
+  color: var(--color-accent);
+}
+
+.wishlist-card__status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  background: var(--color-accent-quiet);
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wishlist-card__price {
+  margin: 0;
+  font-weight: 600;
+}
+
+.wishlist-card__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.wishlist-card__meta dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.wishlist-card__meta dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.wishlist-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.wishlist__priority {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.wishlist__priority-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wishlist__priority-option input {
+  display: none;
+}
+
+.wishlist__priority-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.wishlist__priority-pill--high {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.wishlist__priority-pill--medium {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.wishlist__priority-pill--low {
+  color: var(--color-text-muted);
+}
