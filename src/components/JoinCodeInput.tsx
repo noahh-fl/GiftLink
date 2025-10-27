@@ -1,4 +1,5 @@
-import { ChangeEvent, useId, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useId, useState } from "react";
 
 export const JOIN_CODE_MIN = 6;
 export const JOIN_CODE_MAX = 10;

@@ -1,0 +1,37 @@
+.gl-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.gl-form-field__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: var(--h3-weight);
+  color: var(--color-text);
+}
+
+.gl-form-field__optional {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.gl-form-field__description {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.gl-form-field__control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.gl-form-field__error {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-danger);
+}

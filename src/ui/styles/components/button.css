@@ -1,0 +1,109 @@
+.gl-button {
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--body-size);
+  font-weight: var(--h3-weight);
+  letter-spacing: -0.01em;
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  transition: background-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.gl-button__content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.gl-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.gl-button:disabled,
+.gl-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.gl-button--primary {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.gl-button--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 90%, #000 10%);
+}
+
+.gl-button--secondary {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.gl-button--secondary:hover:not(:disabled) {
+  background: var(--color-accent-quiet);
+  color: var(--color-accent);
+}
+
+.gl-button--ghost {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.gl-button--ghost:hover:not(:disabled) {
+  color: var(--color-accent);
+  background: var(--color-accent-quiet);
+}
+
+.gl-button--primary.gl-button--danger,
+.gl-button--danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.gl-button--primary.gl-button--danger:hover:not(:disabled),
+.gl-button--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 92%, #000 8%);
+}
+
+.gl-button--primary.gl-button--success,
+.gl-button--success {
+  background: var(--color-success);
+  color: #fff;
+}
+
+.gl-button--primary.gl-button--success:hover:not(:disabled),
+.gl-button--success:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-success) 92%, #000 8%);
+}
+
+.gl-button--sm {
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  font-size: 14px;
+}
+
+.gl-button--lg {
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  font-size: 18px;
+}
+
+.gl-button--loading {
+  opacity: 0.8;
+  pointer-events: none;
+}
