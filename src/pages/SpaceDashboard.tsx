@@ -11,7 +11,6 @@ type SpaceSummary = {
 };
 
 type LoadState = "idle" | "loading" | "error" | "ready";
-
 type CopyState = "idle" | "copied" | "error";
 
 export default function SpaceDashboard() {
@@ -20,10 +19,9 @@ export default function SpaceDashboard() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [copyState, setCopyState] = useState<CopyState>("idle");
+
   const navSpaceId = useMemo(() => {
-    if (space) {
-      return String(space.id);
-    }
+    if (space) return String(space.id);
     return spaceId ?? "";
   }, [space, spaceId]);
 
@@ -35,6 +33,7 @@ export default function SpaceDashboard() {
     }
 
     let isCancelled = false;
+
     async function loadSpace() {
       setLoadState("loading");
       setErrorMessage("");
@@ -79,7 +78,6 @@ export default function SpaceDashboard() {
     }
 
     loadSpace();
-
     return () => {
       isCancelled = true;
     };
@@ -90,9 +88,7 @@ export default function SpaceDashboard() {
   }, [space?.joinCode]);
 
   const handleCopy = async () => {
-    if (!space?.joinCode) {
-      return;
-    }
+    if (!space?.joinCode) return;
 
     setCopyState("idle");
     if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
@@ -147,7 +143,7 @@ export default function SpaceDashboard() {
           >
             {space?.name ?? "Loading space"}
           </h1>
-          {space?.pointMode || space?.mode ? (
+          {(space?.pointMode || space?.mode) && (
             <p
               style={{
                 margin: 0,
@@ -156,7 +152,7 @@ export default function SpaceDashboard() {
             >
               Point mode: {(space.pointMode ?? space.mode ?? "").toString()}
             </p>
-          ) : null}
+          )}
         </header>
 
         <section
@@ -231,11 +227,7 @@ export default function SpaceDashboard() {
             >
               Copy code
             </button>
-            <span
-              role="status"
-              aria-live="polite"
-              style={{ color: "var(--color-text-muted)" }}
-            >
+            <span role="status" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
               {copyState === "copied"
                 ? "Copied!"
                 : copyState === "error"

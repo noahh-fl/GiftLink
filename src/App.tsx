@@ -9,9 +9,11 @@ import {
 } from "react-router-dom";
 import { SpaceProvider, useSpace } from "./contexts/SpaceContext";
 import { ToastProvider } from "./contexts/ToastContext";
+
 import AppShell from "./ui/components/AppShell";
 import SpaceJoin from "./pages/SpaceJoin";
 import Button from "./ui/components/Button";
+
 import "./ui/tokens/tokens.css";
 import "./ui/styles/base.css";
 import "./ui/styles/components/primary-nav.css";

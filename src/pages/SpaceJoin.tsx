@@ -27,9 +27,7 @@ export default function SpaceJoin() {
   const statusId = status.type !== "idle" ? "space-join-status" : undefined;
 
   function handleCodeChange(nextValue: string) {
-    if (status.type !== "idle") {
-      setStatus({ type: "idle" });
-    }
+    if (status.type !== "idle") setStatus({ type: "idle" });
     setInviteCode(nextValue);
   }
 
@@ -37,9 +35,7 @@ export default function SpaceJoin() {
     event.preventDefault();
     setTouched(true);
 
-    if (!validation.isValid) {
-      return;
-    }
+    if (!validation.isValid) return;
 
     setLoading(true);
     setStatus({ type: "info", message: "Checking invite code..." });
@@ -56,27 +52,27 @@ export default function SpaceJoin() {
 
       if (!response.ok) {
         const message =
-          body && typeof body === "object" && "message" in body && typeof body.message === "string"
-            ? body.message
+          body && typeof body === "object" && "message" in body && typeof (body as any).message === "string"
+            ? (body as any).message
             : "We couldn't find that invite.";
         throw new Error(message);
       }
 
       const space =
         body && typeof body === "object" && "space" in body
-          ? (body.space as { id?: unknown; name?: unknown })
-          : body;
+          ? (body as { space: { id?: unknown; name?: unknown } }).space
+          : (body as { id?: unknown; name?: unknown });
 
       const spaceId =
-        space && typeof space === "object" && "id" in space && typeof space.id === "string"
-          ? space.id
-          : typeof space?.id === "number"
-            ? String(space.id)
-            : cleaned;
+        space && typeof space === "object" && "id" in space && typeof (space as any).id === "string"
+          ? (space as any).id
+          : typeof (space as any)?.id === "number"
+          ? String((space as any).id)
+          : cleaned;
 
       const spaceName =
-        space && typeof space === "object" && "name" in space && typeof space.name === "string"
-          ? space.name
+        space && typeof space === "object" && "name" in space && typeof (space as any).name === "string"
+          ? (space as any).name
           : "";
 
       setActiveSpace({ id: spaceId, name: spaceName });
