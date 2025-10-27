@@ -20,23 +20,15 @@ export default function SpaceDashboard() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [copyState, setCopyState] = useState<CopyState>("idle");
-  const numericId = useMemo(() => {
-    if (!spaceId) {
-      return null;
+  const navSpaceId = useMemo(() => {
+    if (space) {
+      return String(space.id);
     }
-    const parsed = Number.parseInt(spaceId, 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  }, [spaceId]);
-  const navSpaceId = space
-    ? String(space.id)
-    : numericId
-    ? String(numericId)
-    : spaceId
-    ? spaceId
-    : "";
+    return spaceId ?? "";
+  }, [space, spaceId]);
 
   useEffect(() => {
-    if (!numericId) {
+    if (!spaceId) {
       setLoadState("error");
       setErrorMessage("Space id is missing or invalid.");
       return;
@@ -47,7 +39,7 @@ export default function SpaceDashboard() {
       setLoadState("loading");
       setErrorMessage("");
       try {
-        const response = await apiFetch(`/spaces/${numericId}`);
+        const response = await apiFetch(`/space/${encodeURIComponent(spaceId)}`);
         const body = await response.json().catch(() => null);
 
         if (!response.ok || !body || typeof body !== "object" || body === null) {
@@ -91,7 +83,7 @@ export default function SpaceDashboard() {
     return () => {
       isCancelled = true;
     };
-  }, [numericId]);
+  }, [spaceId]);
 
   useEffect(() => {
     setCopyState("idle");
