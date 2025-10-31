@@ -26,6 +26,7 @@ model Space {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   wishlistItems WishlistItem[]
+  rewards       Reward[]
 }
 
 model WishlistItem {
@@ -62,6 +63,20 @@ model Gift {
   giver             User?        @relation(fields: [giverId], references: [id])
 
   @@index([wishlistItemId])
+}
+
+model Reward {
+  id          Int      @id @default(autoincrement())
+  spaceId     Int
+  ownerKey    String
+  title       String
+  points      Int
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  space       Space    @relation(fields: [spaceId], references: [id])
+
+  @@index([spaceId, ownerKey])
 }
 
 enum Priority {

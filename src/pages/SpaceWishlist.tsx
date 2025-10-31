@@ -1,262 +1,273 @@
-import { useCallback, useMemo, useState, type ClipboardEvent } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import FormField from "../ui/components/FormField";
+import Input from "../ui/components/Input";
+import Button from "../ui/components/Button";
+import { apiFetch } from "../utils/api";
+import type { SpaceOutletContext } from "./SpaceLayout";
+import { useOutletContext } from "react-router-dom";
 import "./SpaceWishlist.css";
 
-type PeekalinkMetadata = {
-  title: string | null;
-  image: string | null;
-  price: number | string | null;
-};
-
-type MetadataStatus = "idle" | "loading" | "success" | "error";
-
-function normalizePriceInput(value: PeekalinkMetadata["price"]): string {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value.toString();
-  }
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  return "";
+interface WishlistGift {
+  status?: string | null;
 }
 
-function formatPriceDisplay(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "—";
-  }
-
-  const numeric = Number.parseFloat(trimmed.replace(/[^0-9.,]/g, "").replace(/,/g, ""));
-  if (!Number.isFinite(numeric)) {
-    return trimmed;
-  }
-
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(numeric);
+interface WishlistItem {
+  id: number;
+  title: string;
+  url?: string | null;
+  priceCents?: number | null;
+  notes?: string | null;
+  createdAt?: string;
+  gift?: WishlistGift | null;
 }
+
+type LoadState = "idle" | "loading" | "error" | "ready";
 
 export default function SpaceWishlist() {
-  const { spaceId } = useParams<{ spaceId: string }>();
-  const [link, setLink] = useState("");
+  const { space } = useOutletContext<SpaceOutletContext>();
+  const [items, setItems] = useState<WishlistItem[]>([]);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [formOpen, setFormOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [metadataStatus, setMetadataStatus] = useState<MetadataStatus>("idle");
-  const [metadataError, setMetadataError] = useState<string | null>(null);
-  const [lastFetchedLink, setLastFetchedLink] = useState<string | null>(null);
+  const [link, setLink] = useState("");
+  const [notes, setNotes] = useState("");
+  const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  const shouldQueryMetadata = useCallback((candidate: string) => {
-    return candidate.toLowerCase().includes("amazon.");
-  }, []);
+  const sortedItems = useMemo(() => items.slice().sort((a, b) => a.id - b.id), [items]);
 
-  const fetchMetadata = useCallback(
-    async (candidate: string) => {
-      const prepared = candidate.trim();
-      if (!prepared || !shouldQueryMetadata(prepared)) {
-        setMetadataStatus("idle");
-        setMetadataError(null);
+  const loadWishlist = useCallback(async () => {
+    setLoadState((previous) => (previous === "ready" ? previous : "loading"));
+    setLoadError("");
+
+    try {
+      const response = await apiFetch(`/wishlist?spaceId=${space.id}`);
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !Array.isArray(body)) {
+        throw new Error("Unable to load wishlist items.");
+      }
+
+      setItems(body as WishlistItem[]);
+      setLoadState("ready");
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "Unable to load wishlist items.";
+      setLoadError(message);
+      setLoadState("error");
+    }
+  }, [space.id]);
+
+  useEffect(() => {
+    void loadWishlist();
+  }, [loadWishlist]);
+
+  function resetForm() {
+    setTitle("");
+    setPrice("");
+    setLink("");
+    setNotes("");
+    setFormError("");
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError("");
+
+    const trimmedTitle = title.trim();
+    const trimmedLink = link.trim();
+    const trimmedNotes = notes.trim();
+    const trimmedPrice = price.trim();
+
+    if (!trimmedTitle) {
+      setFormError("Title is required.");
+      return;
+    }
+
+    let priceCents: number | null = null;
+    if (trimmedPrice) {
+      const parsed = Number.parseFloat(trimmedPrice.replace(/[^0-9.]/g, ""));
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setFormError("Enter a valid price.");
         return;
       }
+      priceCents = Math.round(parsed * 100);
+    }
 
-      if (prepared === lastFetchedLink && metadataStatus === "success") {
-        return;
+    setSubmitting(true);
+
+    try {
+      const payload: Record<string, unknown> = {
+        spaceId: space.id,
+        title: trimmedTitle,
+      };
+
+      if (trimmedLink) {
+        payload.url = trimmedLink;
+      }
+      if (trimmedNotes) {
+        payload.notes = trimmedNotes;
+      }
+      if (priceCents !== null) {
+        payload.priceCents = priceCents;
       }
 
-      setMetadataStatus("loading");
-      setMetadataError(null);
+      const response = await apiFetch("/wishlist", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
-      try {
-        const response = await fetch("http://127.0.0.1:3000/metadata/peekalink", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ link: prepared }),
-        });
+      const body = await response.json().catch(() => null);
 
-        if (!response.ok) {
-          throw new Error(`Peekalink request failed with status ${response.status}`);
-        }
-
-        const payload: PeekalinkMetadata = await response.json();
-
-        setTitle(payload.title ?? "");
-        setImageUrl(payload.image ?? "");
-        setPrice(normalizePriceInput(payload.price));
-        setMetadataStatus("success");
-        setMetadataError(null);
-        setLastFetchedLink(prepared);
-      } catch (error) {
-        console.error(error);
-        setMetadataStatus("error");
-        setMetadataError("We couldn't fetch metadata. You can continue filling fields manually.");
-      }
-    },
-    [lastFetchedLink, metadataStatus, shouldQueryMetadata],
-  );
-
-  const handleLinkBlur = useCallback(() => {
-    void fetchMetadata(link);
-  }, [fetchMetadata, link]);
-
-  const handleLinkPaste = useCallback(
-    (event: ClipboardEvent<HTMLInputElement>) => {
-      const pasted = event.clipboardData.getData("text");
-      if (!pasted) {
-        return;
+      if (!response.ok || !body || typeof body !== "object") {
+        throw new Error("Unable to add item.");
       }
 
-      event.preventDefault();
-      setLink(pasted);
-      void fetchMetadata(pasted);
-    },
-    [fetchMetadata],
-  );
+      const created = body as WishlistItem;
+      setItems((previous) => [created, ...previous]);
+      resetForm();
+      setFormOpen(false);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Unable to add item.";
+      setFormError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
-  const statusMessage = useMemo(() => {
-    if (metadataStatus === "loading") {
-      return "Fetching item details…";
+  function formatPrice(cents?: number | null) {
+    if (typeof cents !== "number" || Number.isNaN(cents)) {
+      return "—";
     }
-    if (metadataStatus === "error") {
-      return metadataError ?? "We couldn't fetch metadata.";
-    }
-    if (metadataStatus === "success") {
-      return "Metadata fetched. Review and adjust before saving.";
-    }
-    return "Paste an Amazon link to auto-fill wishlist details.";
-  }, [metadataError, metadataStatus]);
-
-  const formattedPrice = useMemo(() => formatPriceDisplay(price), [price]);
-  const hasImage = Boolean(imageUrl);
-  const isLoading = metadataStatus === "loading";
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+  }
 
   return (
-    <main className="main-wishlist">
-      <div className="wishlist-panel">
-        <header className="wishlist-header">
-          <span className="wishlist-eyebrow">My Wishlist</span>
-          <h1 className="wishlist-title">Add an item</h1>
-          <p className="wishlist-description">
-            Paste an Amazon link to pull title, price, and imagery instantly. You can fine-tune anything before saving to your
-            wishlist.
+    <div className="space-wishlist" aria-labelledby="space-wishlist-title">
+      <header className="space-wishlist__header">
+        <div>
+          <p className="space-wishlist__eyebrow">Wishlist</p>
+          <h1 id="space-wishlist-title" className="space-wishlist__title">
+            Shared ideas for {space.name}
+          </h1>
+          <p className="space-wishlist__subtitle">
+            Everyone in this space can see and add items. Keep notes to hint at why it matters.
           </p>
-          <p className="wishlist-description" aria-live="polite">
-            Space ID: {spaceId ?? "—"}
-          </p>
-        </header>
+        </div>
+        <Button type="button" onClick={() => setFormOpen((prev) => !prev)}>
+          {formOpen ? "Cancel" : "Add item"}
+        </Button>
+      </header>
 
-        <form
-          className="wishlist-form"
-          aria-label="Wishlist item form"
-          onSubmit={(event) => {
-            event.preventDefault();
-          }}
-        >
-          <fieldset className="wishlist-fieldset">
-            <legend className="wishlist-label">Link</legend>
-            <div className="wishlist-field">
-              <label className="wishlist-label" htmlFor="wishlist-link">
-                Amazon URL
-                <span className="wishlist-hint">Paste or type an Amazon product link</span>
-              </label>
-              <input
-                id="wishlist-link"
-                className="wishlist-input"
-                name="link"
-                value={link}
-                onChange={(event) => setLink(event.target.value)}
-                onBlur={handleLinkBlur}
-                onPaste={handleLinkPaste}
-                placeholder="https://www.amazon.com/..."
-                inputMode="url"
-                type="url"
-                autoComplete="off"
-              />
-            </div>
-            <div className={`wishlist-status${metadataStatus === "error" ? " wishlist-status--error" : ""}`} aria-live="polite">
-              {statusMessage}
-            </div>
-          </fieldset>
+      {formOpen ? (
+        <form className="space-wishlist__form" onSubmit={handleSubmit} noValidate>
+          <FormField htmlFor="wishlist-title" label="Title" required>
+            <Input
+              id="wishlist-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Example: Pour-over kettle"
+              disabled={submitting}
+            />
+          </FormField>
 
-          <fieldset className="wishlist-fieldset">
-            <legend className="wishlist-label">Details</legend>
-            <div className="wishlist-field">
-              <label className="wishlist-label" htmlFor="wishlist-title">
-                Title
-              </label>
-              <input
-                id="wishlist-title"
-                className="wishlist-input"
-                name="title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Product name"
-                autoComplete="off"
-              />
-            </div>
-
-            <div className="wishlist-field">
-              <label className="wishlist-label" htmlFor="wishlist-price">
-                Price
-                <span className="wishlist-hint">Shown to partners as guidance</span>
-              </label>
-              <input
+          <div className="space-wishlist__form-grid">
+            <FormField htmlFor="wishlist-price" label="Price" hint="USD">
+              <Input
                 id="wishlist-price"
-                className="wishlist-input"
-                name="price"
                 value={price}
                 onChange={(event) => setPrice(event.target.value)}
-                placeholder="e.g. 39.99"
+                placeholder="45"
+                disabled={submitting}
                 inputMode="decimal"
-                autoComplete="off"
               />
-            </div>
-
-            <div className="wishlist-field">
-              <label className="wishlist-label" htmlFor="wishlist-image">
-                Image URL
-                <span className="wishlist-hint">Optional thumbnail used in the wishlist preview</span>
-              </label>
-              <input
-                id="wishlist-image"
-                className="wishlist-input"
-                name="image"
-                value={imageUrl}
-                onChange={(event) => setImageUrl(event.target.value)}
-                placeholder="https://images-na.ssl-images-amazon.com/..."
+            </FormField>
+            <FormField htmlFor="wishlist-link" label="Link">
+              <Input
+                id="wishlist-link"
+                value={link}
+                onChange={(event) => setLink(event.target.value)}
+                placeholder="https://"
+                disabled={submitting}
                 inputMode="url"
-                autoComplete="off"
               />
-            </div>
-          </fieldset>
+            </FormField>
+          </div>
 
-          <section className="wishlist-preview-grid" aria-live="polite">
-            <article className="wishlist-preview-card" aria-label="Metadata preview">
-              <h2 className="wishlist-preview-card-title">Preview</h2>
-              <div className="wishlist-preview">
-                <div className={`wishlist-preview-image${isLoading ? " wishlist-skeleton" : ""}`} aria-hidden={!hasImage}>
-                  {hasImage ? (
-                    <img src={imageUrl} alt={title ? `Preview of ${title}` : "Preview image"} />
-                  ) : (
-                    <span className="wishlist-preview-placeholder">No image yet</span>
-                  )}
-                </div>
-                <div className="wishlist-preview-body">
-                  <div
-                    className={`wishlist-preview-title${isLoading ? " wishlist-skeleton wishlist-skeleton-block" : ""}`}
-                  >
-                    {!title && !isLoading ? "—" : title || ""}
-                  </div>
-                  <div
-                    className={`wishlist-preview-meta${isLoading ? " wishlist-skeleton wishlist-skeleton-block" : ""}`}
-                  >
-                    Price: {isLoading && !price ? "" : formattedPrice}
-                  </div>
-                </div>
-              </div>
-            </article>
-          </section>
+          <div className="space-wishlist__notes">
+            <label className="space-wishlist__notes-label" htmlFor="wishlist-notes">
+              Notes
+              <span className="space-wishlist__notes-hint">Optional</span>
+            </label>
+            <textarea
+              id="wishlist-notes"
+              className="space-wishlist__textarea"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Context, sizes, or delivery timing."
+              disabled={submitting}
+            />
+          </div>
+
+          {formError ? (
+            <p className="space-wishlist__status space-wishlist__status--error" role="alert">
+              {formError}
+            </p>
+          ) : null}
+
+          <div className="space-wishlist__form-actions">
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Saving…" : "Save item"}
+            </Button>
+          </div>
         </form>
-      </div>
-    </main>
+      ) : null}
+
+      <section className="space-wishlist__list" aria-live="polite">
+        {loadState === "loading" ? <p className="space-wishlist__loading">Loading wishlist…</p> : null}
+        {loadState === "error" ? (
+          <div className="space-wishlist__error">
+            <p>{loadError}</p>
+            <Button type="button" variant="secondary" onClick={() => void loadWishlist()}>
+              Retry
+            </Button>
+          </div>
+        ) : null}
+        {loadState === "ready" && sortedItems.length === 0 ? (
+          <p className="space-wishlist__empty">No items yet. Add the first wish to get started.</p>
+        ) : null}
+        {loadState === "ready" && sortedItems.length > 0 ? (
+          <div className="space-wishlist__grid">
+            {sortedItems.map((item) => (
+              <article key={item.id} className="space-wishlist__item">
+                <header>
+                  <h2>{item.title}</h2>
+                  <p className="space-wishlist__price">{formatPrice(item.priceCents)}</p>
+                </header>
+                {item.notes ? <p className="space-wishlist__notes-text">{item.notes}</p> : null}
+                <dl className="space-wishlist__meta">
+                  <div>
+                    <dt>Gift status</dt>
+                    <dd>{item.gift?.status ?? "PENDING"}</dd>
+                  </div>
+                  <div>
+                    <dt>Added</dt>
+                    <dd>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "—"}</dd>
+                  </div>
+                </dl>
+                {item.url ? (
+                  <a className="space-wishlist__link" href={item.url} target="_blank" rel="noreferrer">
+                    View link
+                  </a>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    </div>
   );
 }

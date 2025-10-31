@@ -324,6 +324,20 @@ function serializeSpace(space) {
   };
 }
 
+function resolveUserKey(req) {
+  const rawHeader =
+    req.headers?.["x-user-id"] ?? req.headers?.["x-user"] ?? req.headers?.["x-user-key"] ?? null;
+
+  if (typeof rawHeader === "string") {
+    const trimmed = rawHeader.trim();
+    if (trimmed.length > 0) {
+      return trimmed.slice(0, 120);
+    }
+  }
+
+  return "anonymous-tester";
+}
+
 app.post("/space", async (req, res) => {
   const { name, description, mode } = req.body ?? {};
   const trimmedName = typeof name === "string" ? name.trim() : "";
@@ -654,6 +668,142 @@ app.post("/spaces/:id/code/rotate", async (req, res) => {
   }
 });
 
+app.get("/spaces/:id/rewards", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const ownerFilterRaw = req.query?.owner;
+  const ownerFilter = typeof ownerFilterRaw === "string" ? ownerFilterRaw.trim() : "";
+
+  const filters = { spaceId };
+  if (ownerFilter) {
+    filters.ownerKey = ownerFilter;
+  }
+
+  try {
+    const rewards = await prisma.reward.findMany({
+      where: filters,
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.status(200).send({ rewards: rewards.map(serializeReward) });
+  } catch (loadError) {
+    req.log.error({ err: loadError }, "Failed to load rewards");
+    return sendJsonError(res, 500, "Failed to load rewards.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/spaces/:id/rewards", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const ownerKey = resolveUserKey(req);
+  const title = sanitizeNullableString(req.body.title);
+  if (!title) {
+    return sendJsonError(res, 400, "Title is required.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const rawPoints = req.body.points;
+  const pointsValue = typeof rawPoints === "number" ? rawPoints : Number.parseInt(rawPoints, 10);
+  if (!Number.isFinite(pointsValue) || pointsValue <= 0) {
+    return sendJsonError(res, 400, "Points must be a positive integer.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const description = sanitizeNullableString(req.body.description);
+
+  try {
+    const space = await prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { id: true },
+    });
+
+    if (!space) {
+      return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    const created = await prisma.reward.create({
+      data: {
+        spaceId,
+        ownerKey,
+        title,
+        points: Math.trunc(pointsValue),
+        description,
+      },
+    });
+
+    return res.status(201).send({ reward: serializeReward(created) });
+  } catch (creationError) {
+    req.log.error({ err: creationError }, "Failed to create reward");
+    return sendJsonError(res, 500, "Failed to create reward.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.put("/spaces/:id/rewards/:rewardId", async (req, res) => {
+  const { value: spaceId, error: spaceError } = parseSpaceId(req.params.id);
+  if (spaceError) {
+    return sendJsonError(res, 400, spaceError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const { value: rewardId, error: rewardError } = parseSpaceId(req.params.rewardId);
+  if (rewardError) {
+    return sendJsonError(res, 400, rewardError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const ownerKey = resolveUserKey(req);
+  const title = sanitizeNullableString(req.body.title);
+  if (!title) {
+    return sendJsonError(res, 400, "Title is required.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const rawPoints = req.body.points;
+  const pointsValue = typeof rawPoints === "number" ? rawPoints : Number.parseInt(rawPoints, 10);
+  if (!Number.isFinite(pointsValue) || pointsValue <= 0) {
+    return sendJsonError(res, 400, "Points must be a positive integer.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const description = sanitizeNullableString(req.body.description);
+
+  try {
+    const existing = await prisma.reward.findUnique({
+      where: { id: rewardId },
+    });
+
+    if (!existing || existing.spaceId !== spaceId) {
+      return sendJsonError(res, 404, "Reward not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (existing.ownerKey !== ownerKey) {
+      return sendJsonError(res, 403, "Only the owner can update this reward.", ERROR_CODES.FORBIDDEN);
+    }
+
+    const updated = await prisma.reward.update({
+      where: { id: rewardId },
+      data: {
+        title,
+        points: Math.trunc(pointsValue),
+        description,
+      },
+    });
+
+    return res.status(200).send({ reward: serializeReward(updated) });
+  } catch (updateError) {
+    req.log.error({ err: updateError }, "Failed to update reward");
+    return sendJsonError(res, 500, "Failed to update reward.", ERROR_CODES.INTERNAL);
+  }
+});
+
 function parseIdParam(value, name, res) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -841,6 +991,19 @@ function mapWishlistItem(item) {
     createdAt: serializeDate(item.createdAt),
     updatedAt: serializeDate(item.updatedAt),
     gift: mapGift(item.gift ?? null),
+  };
+}
+
+function serializeReward(reward) {
+  return {
+    id: reward.id,
+    spaceId: reward.spaceId,
+    ownerKey: reward.ownerKey,
+    title: reward.title,
+    points: reward.points,
+    description: reward.description,
+    createdAt: serializeDate(reward.createdAt),
+    updatedAt: serializeDate(reward.updatedAt),
   };
 }
 
