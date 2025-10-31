@@ -4,6 +4,7 @@ import { useOutletContext } from "react-router-dom";
 import Button from "../ui/components/Button";
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
+import PointsBadge from "../components/PointsBadge";
 import { useToast } from "../contexts/ToastContext";
 import { apiFetch } from "../utils/api";
 import { getUserIdentity } from "../utils/user";
@@ -327,11 +328,13 @@ export default function SpacePointShop() {
           <div className="space-shop__grid">
             {filteredRewards.map((reward) => (
               <article key={reward.id} className="space-shop__item">
-                <header>
-                  <div>
-                    <h2>{reward.title}</h2>
-                    <p className="space-shop__points">{reward.points} pts</p>
-                  </div>
+                <header className="space-shop__item-header">
+                  <h2>{reward.title}</h2>
+                  <PointsBadge
+                    className="space-shop__points-badge"
+                    label={`${reward.points} pts`}
+                    ariaLabel={`${reward.points} points`}
+                  />
                 </header>
                 {reward.description ? <p className="space-shop__description">{reward.description}</p> : null}
                 {reward.userId === identity.id && view === "mine" ? (

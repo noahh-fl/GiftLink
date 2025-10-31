@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
 import Button from "../ui/components/Button";
+import PointsBadge from "../components/PointsBadge";
 import { useToast } from "../contexts/ToastContext";
 import { apiFetch } from "../utils/api";
 import type { SpaceOutletContext } from "./SpaceLayout";
@@ -31,8 +32,14 @@ type FlowStep = "link" | "details";
 
 interface ParsedGiftResponse {
   title: string | null;
+  rawTitle: string | null;
   price: number | null;
+  currency: string | null;
   imageUrl: string | null;
+  asin?: string | null;
+  features?: string[] | null;
+  rating?: number | null;
+  reviewCount?: number | null;
 }
 
 interface GiftFormState {
@@ -42,6 +49,7 @@ interface GiftFormState {
   imageUrl: string;
   notes: string;
   points: string;
+  currency: string;
 }
 
 const INITIAL_FORM: GiftFormState = {
@@ -51,6 +59,7 @@ const INITIAL_FORM: GiftFormState = {
   imageUrl: "",
   notes: "",
   points: "",
+  currency: "",
 };
 
 function formatCurrency(priceCents?: number | null) {
@@ -130,6 +139,7 @@ export default function SpaceWishlist() {
   const [allowEditDetails, setAllowEditDetails] = useState(false);
   const [formState, setFormState] = useState<GiftFormState>(INITIAL_FORM);
   const [parseError, setParseError] = useState("");
+  const [manualEntryNotice, setManualEntryNotice] = useState("");
   const [formError, setFormError] = useState("");
   const [fetchingDetails, setFetchingDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -156,6 +166,42 @@ export default function SpaceWishlist() {
     }
     return computePointsFromPriceInput(formState.price);
   }, [formState.price, isValueMode]);
+
+  const previewPriceValue = useMemo(() => {
+    const result = normalizePriceInput(formState.price);
+    if (result.error || result.value === null) {
+      return null;
+    }
+    return result.value;
+  }, [formState.price]);
+
+  const formattedPreviewPrice = useMemo(() => {
+    if (previewPriceValue === null) {
+      return "—";
+    }
+
+    const currencyCode = formState.currency || "USD";
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currencyCode,
+      }).format(previewPriceValue);
+    } catch {
+      return `$${previewPriceValue.toFixed(2)}`;
+    }
+  }, [previewPriceValue, formState.currency]);
+
+  const liveValueModePoints = useMemo(() => {
+    const trimmed = formState.points.trim();
+    if (!trimmed) {
+      return 0;
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 0;
+    }
+    return Math.trunc(parsed);
+  }, [formState.points]);
 
   const loadWishlist = useCallback(async () => {
     setLoadState((previous) => (previous === "ready" ? previous : "loading"));
@@ -188,8 +234,9 @@ export default function SpaceWishlist() {
   }, [loadWishlist]);
 
   function resetFormState() {
-    setFormState(INITIAL_FORM);
+    setFormState(() => ({ ...INITIAL_FORM }));
     setParseError("");
+    setManualEntryNotice("");
     setFormError("");
     setAllowEditDetails(false);
     setIsManualEntry(false);
@@ -214,6 +261,7 @@ export default function SpaceWishlist() {
     setIsManualEntry(true);
     setAllowEditDetails(true);
     setParseError("");
+    setManualEntryNotice("");
   }
 
   async function handleFetchDetails() {
@@ -245,16 +293,31 @@ export default function SpaceWishlist() {
       setFormState((previous) => ({
         ...previous,
         title: payload.title ?? previous.title,
-        price: typeof payload.price === "number" ? payload.price.toFixed(2) : previous.price,
+        price:
+          typeof payload.price === "number"
+            ? payload.price.toFixed(2)
+            : previous.price,
         imageUrl: payload.imageUrl ?? previous.imageUrl,
+        currency:
+          typeof payload.currency === "string" && payload.currency.trim()
+            ? payload.currency.trim().toUpperCase()
+            : previous.currency,
       }));
       setFlowStep("details");
       setIsManualEntry(false);
       setAllowEditDetails(false);
+      setManualEntryNotice("");
     } catch (error) {
+      const fallbackManualMessage = "We couldn’t read that link. Try another or enter details manually.";
       const message =
-        error instanceof Error && error.message ? error.message : "Unable to fetch details. Enter them manually.";
-      setParseError(message);
+        error instanceof Error && error.message && !/unable to fetch details/i.test(error.message)
+          ? error.message
+          : fallbackManualMessage;
+      setManualEntryNotice(message);
+      setFlowStep("details");
+      setIsManualEntry(true);
+      setAllowEditDetails(true);
+      setParseError("");
     } finally {
       setFetchingDetails(false);
     }
@@ -449,6 +512,12 @@ export default function SpaceWishlist() {
                 </div>
               </div>
 
+              {manualEntryNotice ? (
+                <p className="space-wishlist__status space-wishlist__status--info" role="status">
+                  {manualEntryNotice}
+                </p>
+              ) : null}
+
               <div className="space-wishlist__details-grid">
                 <div className="space-wishlist__details-main">
                   <FormField htmlFor="wishlist-title" label="Title" required>
@@ -467,7 +536,7 @@ export default function SpaceWishlist() {
                     <FormField
                       htmlFor="wishlist-price"
                       label="Price"
-                      hint={isValueMode ? "Optional" : "Required"}
+                      hint={isValueMode ? "Optional" : "Points based on price"}
                       required={!isValueMode}
                     >
                       <Input
@@ -497,20 +566,32 @@ export default function SpaceWishlist() {
                   </div>
 
                   {isValueMode ? (
-                    <FormField htmlFor="wishlist-points" label="Points" required hint="Whole numbers only">
-                      <Input
-                        id="wishlist-points"
-                        value={formState.points}
-                        onChange={(event) => setFormState((previous) => ({ ...previous, points: event.target.value }))}
-                        placeholder="40"
-                        inputMode="numeric"
-                        disabled={submitting}
+                    <div className="space-wishlist__points-row">
+                      <FormField htmlFor="wishlist-points" label="Points" required hint="Whole numbers only">
+                        <Input
+                          id="wishlist-points"
+                          value={formState.points}
+                          onChange={(event) => setFormState((previous) => ({ ...previous, points: event.target.value }))}
+                          placeholder="40"
+                          inputMode="numeric"
+                          disabled={submitting}
+                        />
+                      </FormField>
+                      <PointsBadge
+                        className="space-wishlist__points-badge"
+                        label={`${liveValueModePoints} pts`}
+                        ariaLabel={`Current points value ${liveValueModePoints} points`}
                       />
-                    </FormField>
+                    </div>
                   ) : (
-                    <p className="space-wishlist__points-hint" aria-live="polite">
-                      Points based on price: {derivedPointsFromPrice ?? 0} pts
-                    </p>
+                    <div className="space-wishlist__points-summary" aria-live="polite">
+                      <PointsBadge
+                        className="space-wishlist__points-badge"
+                        label={`Worth ${derivedPointsFromPrice ?? 0} pts`}
+                        ariaLabel={`Worth ${derivedPointsFromPrice ?? 0} points`}
+                      />
+                      <p className="space-wishlist__points-caption">Points based on price.</p>
+                    </div>
                   )}
 
                   <div className="space-wishlist__notes">
@@ -546,14 +627,26 @@ export default function SpaceWishlist() {
                     </div>
                     <div>
                       <dt>Price</dt>
-                      <dd>{formState.price ? `$${formState.price}` : "—"}</dd>
+                      <dd>{formattedPreviewPrice}</dd>
                     </div>
                     <div>
                       <dt>Points</dt>
                       <dd>
-                        {isValueMode
-                          ? formState.points || "—"
-                          : `${derivedPointsFromPrice ?? 0} pts`}
+                        <div className="space-wishlist__preview-points">
+                          <PointsBadge
+                            className="space-wishlist__points-badge"
+                            label={
+                              isValueMode
+                                ? `${liveValueModePoints} pts`
+                                : `Worth ${derivedPointsFromPrice ?? 0} pts`
+                            }
+                            ariaLabel={
+                              isValueMode
+                                ? `${liveValueModePoints} points`
+                                : `Worth ${derivedPointsFromPrice ?? 0} points`
+                            }
+                          />
+                        </div>
                       </dd>
                     </div>
                   </dl>
@@ -595,18 +688,26 @@ export default function SpaceWishlist() {
               const points = resolveItemPoints(item);
               return (
                 <article key={item.id} className="space-wishlist__item">
-                  {item.image ? (
-                    <div className="space-wishlist__item-image">
+                  <div className="space-wishlist__item-media">
+                    {item.image ? (
                       <img src={item.image} alt={item.title} />
-                    </div>
-                  ) : null}
-                  <div className="space-wishlist__item-body">
-                    <header>
-                      <div>
-                        <h2>{item.title}</h2>
-                        <p className="space-wishlist__price">{formatCurrency(item.priceCents)}</p>
+                    ) : (
+                      <div className="space-wishlist__item-placeholder" aria-hidden="true">
+                        <span>No image</span>
                       </div>
-                      <span className="space-wishlist__points">{points} pts</span>
+                    )}
+                  </div>
+                  <div className="space-wishlist__item-body">
+                    <header className="space-wishlist__item-header">
+                      <div>
+                        <h2 className="space-wishlist__item-title">{item.title}</h2>
+                        <p className="space-wishlist__item-price">{formatCurrency(item.priceCents)}</p>
+                      </div>
+                      <PointsBadge
+                        className="space-wishlist__points-badge"
+                        label={`${points} pts`}
+                        ariaLabel={`${points} points`}
+                      />
                     </header>
                     {item.notes ? <p className="space-wishlist__notes-text">{item.notes}</p> : null}
                     <dl className="space-wishlist__meta">

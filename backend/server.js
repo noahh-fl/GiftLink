@@ -110,34 +110,66 @@ app.post("/gifts/parse", async (req, res) => {
   }
 
   try {
-    const metadata = await fetchUrlMetadata(urlResult.value);
-    const normalizedImage = normalizeUrl(metadata.image, {
+    const peekalinkPayload = await fetchAmazonPeekalink(urlResult.value);
+    const amazonProduct = peekalinkPayload?.amazonProduct;
+    const fallbackImage = pickPeekalinkImage(peekalinkPayload?.image);
+
+    const rawTitle = selectAmazonTitle(amazonProduct, peekalinkPayload) ?? deriveAmazonTitleFromUrl(urlResult.value);
+    const cleanTitle = rawTitle ? cleanAmazonTitle(rawTitle) : null;
+
+    const { price, currency } = await resolveAmazonPrice(amazonProduct, peekalinkPayload, req.log);
+    const rawImageUrl = pickAmazonImage(amazonProduct, fallbackImage);
+    const imageUrl = normalizeUrl(rawImageUrl, {
       allowNull: true,
       fieldName: "Image URL",
       strict: false,
     }).value;
-    const rawTitle = metadata.title ?? deriveAmazonTitleFromUrl(urlResult.value);
-    const title = rawTitle ? rawTitle.trim() : null;
-    const priceValue =
-      typeof metadata.priceCents === "number"
-        ? Number((metadata.priceCents / 100).toFixed(2))
-        : null;
+    const asin = selectAmazonAsin(urlResult.value, amazonProduct);
+    const features = selectAmazonFeatures(amazonProduct);
+    const rating = typeof amazonProduct?.rating === "number" ? amazonProduct.rating : null;
+    const reviewCount =
+      typeof amazonProduct?.reviewCount === "number" ? amazonProduct.reviewCount : null;
 
-    if (!title && priceValue === null && !normalizedImage) {
+    if (!cleanTitle && price === null && !imageUrl) {
       return sendJsonError(
         res,
         422,
-        "We couldn’t fetch details for that link. Try entering them manually.",
+        "We couldn’t read that link. Try another or enter details manually.",
         ERROR_CODES.UNPROCESSABLE,
       );
     }
 
-    return res.status(200).send({
-      title,
-      price: priceValue,
-      imageUrl: normalizedImage,
-    });
+    const payload = {
+      title: cleanTitle,
+      rawTitle: rawTitle ?? null,
+      price,
+      currency: currency ?? null,
+      imageUrl,
+      asin: asin ?? null,
+    };
+
+    if (features.length > 0) {
+      payload.features = features;
+    }
+    if (rating !== null) {
+      payload.rating = rating;
+    }
+    if (reviewCount !== null) {
+      payload.reviewCount = reviewCount;
+    }
+
+    return res.status(200).send(payload);
   } catch (error) {
+    if (error instanceof PeekalinkUnavailableError) {
+      req.log.error({ err: error, url: urlResult.value }, "Peekalink request failed");
+      return sendJsonError(
+        res,
+        502,
+        "Unable to fetch details for the provided link.",
+        ERROR_CODES.INTERNAL,
+      );
+    }
+
     req.log.error({ err: error, url: urlResult.value }, "Failed to parse gift URL");
     return sendJsonError(
       res,
@@ -177,6 +209,234 @@ const ERROR_CODES = {
   INTERNAL: "INTERNAL_SERVER_ERROR",
   UNPROCESSABLE: "UNPROCESSABLE_ENTITY",
 };
+
+class PeekalinkUnavailableError extends Error {}
+
+async function fetchAmazonPeekalink(url) {
+  const apiKey = process.env.PEEKALINK_API_KEY;
+
+  if (!apiKey) {
+    throw new PeekalinkUnavailableError("Peekalink API key is not configured.");
+  }
+
+  const response = await fetch("https://api.peekalink.io/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ link: url }),
+  });
+
+  if (!response.ok) {
+    throw new PeekalinkUnavailableError(`Peekalink responded with status ${response.status}.`);
+  }
+
+  const payload = await response.json();
+  if (!payload || typeof payload !== "object") {
+    throw new PeekalinkUnavailableError("Peekalink returned an unexpected payload.");
+  }
+
+  return payload;
+}
+
+function selectAmazonTitle(amazonProduct, payload) {
+  if (amazonProduct?.title && typeof amazonProduct.title === "string") {
+    return amazonProduct.title;
+  }
+
+  if (payload?.title && typeof payload.title === "string") {
+    return payload.title;
+  }
+
+  return null;
+}
+
+function cleanAmazonTitle(title) {
+  if (typeof title !== "string") {
+    return null;
+  }
+
+  const withoutPrefix = title.replace(/^amazon\.com\s*:\s*/i, "");
+  const collapsed = withoutPrefix.replace(/\s+/g, " ").trim();
+  const cleaned = collapsed.replace(/^[\s:;,.\-|]+/, "").replace(/[\s:;,.\-|]+$/, "");
+  return cleaned || null;
+}
+
+async function resolveAmazonPrice(amazonProduct, payload, logger) {
+  const result = { price: null, currency: null };
+
+  const directPrice = normalizePriceNumber(amazonProduct?.price ?? payload?.price?.value);
+  if (directPrice !== null) {
+    result.price = directPrice;
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  }
+
+  const rawTextUrl = typeof payload?.page?.rawTextUrl === "string" ? payload.page.rawTextUrl : null;
+  if (!rawTextUrl) {
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  }
+
+  try {
+    const rawResponse = await fetch(rawTextUrl);
+    if (!rawResponse.ok) {
+      logger?.warn?.({ statusCode: rawResponse.status }, "Failed to fetch Peekalink raw text");
+      result.currency = selectCurrency(amazonProduct, payload);
+      return result;
+    }
+
+    const rawText = await rawResponse.text();
+    const parsed = extractPriceFromText(rawText);
+    if (parsed !== null) {
+      result.price = parsed;
+    }
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  } catch (error) {
+    logger?.warn?.({ err: error }, "Unable to parse price from Peekalink raw text");
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  }
+}
+
+function normalizePriceNumber(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value < 0) {
+      return null;
+    }
+    return Number.parseFloat(value.toFixed(2));
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const normalized = trimmed.replace(/[^0-9.,-]/g, "").replace(/,/g, "");
+    if (!normalized) {
+      return null;
+    }
+    const parsed = Number.parseFloat(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+    return Number.parseFloat(parsed.toFixed(2));
+  }
+
+  return null;
+}
+
+function selectCurrency(amazonProduct, payload) {
+  if (amazonProduct?.currency && typeof amazonProduct.currency === "string") {
+    return amazonProduct.currency.toUpperCase();
+  }
+  if (payload?.price?.currency && typeof payload.price.currency === "string") {
+    return payload.price.currency.toUpperCase();
+  }
+  return null;
+}
+
+function pickAmazonImage(amazonProduct, fallbackImage) {
+  const media = Array.isArray(amazonProduct?.media) ? amazonProduct.media : [];
+  for (const asset of media) {
+    if (!asset || typeof asset !== "object") {
+      continue;
+    }
+    const original = typeof asset?.original?.url === "string" ? asset.original.url.trim() : "";
+    if (original) {
+      return original;
+    }
+    const large = typeof asset?.large?.url === "string" ? asset.large.url.trim() : "";
+    if (large) {
+      return large;
+    }
+    const medium = typeof asset?.medium?.url === "string" ? asset.medium.url.trim() : "";
+    if (medium) {
+      return medium;
+    }
+    const thumbnail = typeof asset?.thumbnail?.url === "string" ? asset.thumbnail.url.trim() : "";
+    if (thumbnail) {
+      return thumbnail;
+    }
+  }
+
+  return fallbackImage ?? null;
+}
+
+function pickPeekalinkImage(image) {
+  if (!image) {
+    return null;
+  }
+
+  if (typeof image?.large?.url === "string" && image.large.url.trim()) {
+    return image.large.url.trim();
+  }
+  if (typeof image?.medium?.url === "string" && image.medium.url.trim()) {
+    return image.medium.url.trim();
+  }
+  if (typeof image?.thumbnail?.url === "string" && image.thumbnail.url.trim()) {
+    return image.thumbnail.url.trim();
+  }
+  if (typeof image?.url === "string" && image.url.trim()) {
+    return image.url.trim();
+  }
+  return null;
+}
+
+function selectAmazonAsin(url, amazonProduct) {
+  if (amazonProduct?.asin && typeof amazonProduct.asin === "string") {
+    return amazonProduct.asin;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    for (const segment of segments) {
+      if (/^[A-Z0-9]{10}$/i.test(segment)) {
+        return segment.toUpperCase();
+      }
+    }
+  } catch (error) {
+    return null;
+  }
+
+  return null;
+}
+
+function selectAmazonFeatures(amazonProduct) {
+  if (!Array.isArray(amazonProduct?.features)) {
+    return [];
+  }
+
+  return amazonProduct.features
+    .filter((feature) => typeof feature === "string")
+    .map((feature) => feature.trim())
+    .filter((feature) => feature.length > 0);
+}
+
+function extractPriceFromText(text) {
+  if (typeof text !== "string") {
+    return null;
+  }
+
+  const match = text.match(/(?:USD|US\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (!match) {
+    return null;
+  }
+
+  const normalized = match[1].replace(/,/g, "");
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Number.parseFloat(parsed.toFixed(2));
+}
 
 function generateInviteCode() {
   const lengthSpread = INVITE_CODE_MAX_LENGTH - INVITE_CODE_MIN_LENGTH + 1;

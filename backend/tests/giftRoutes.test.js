@@ -18,6 +18,7 @@ const originalFetch = global.fetch;
 before(async () => {
   process.env.NODE_ENV = "test";
   process.env.DATABASE_URL = `file:${testDbPath}`;
+  process.env.PEEKALINK_API_KEY = "test-key";
 
   try {
     await fs.unlink(testDbPath);
@@ -91,17 +92,41 @@ async function createSpace(mode = "price") {
   });
 }
 
-test("POST /gifts/parse returns normalized metadata", async () => {
-  global.fetch = async (url) => {
-    assert.equal(url, "https://www.amazon.com/dp/B000TESTING");
-    const html = `<!doctype html><html><head>
-      <meta property="og:title" content="Stainless Steel Water Bottle" />
-      <meta property="og:image" content="https://images.example/bottle.jpg" />
-      <meta property="product:price:amount" content="24.49" />
-    </head><body></body></html>`;
-    return new Response(html, {
+test("POST /gifts/parse prefers amazonProduct details from Peekalink", async () => {
+  const peekResponse = {
+    type: "AMAZON_PRODUCT",
+    amazonProduct: {
+      title: "Amazon.com:   Stainless Steel Water Bottle  ",
+      price: 24.49,
+      currency: "usd",
+      media: [
+        {
+          original: { url: "https://images.example/bottle-original.jpg" },
+          large: { url: "https://images.example/bottle-large.jpg" },
+        },
+      ],
+      asin: "B000TESTING",
+      features: [" Keeps drinks cold ", "Vacuum insulated"],
+      rating: 4.6,
+      reviewCount: 1250,
+    },
+    image: {
+      large: { url: "https://images.example/amazon-logo.jpg" },
+    },
+    price: {
+      value: 99.99,
+      currency: "CAD",
+    },
+  };
+
+  global.fetch = async (url, options) => {
+    assert.equal(url, "https://api.peekalink.io/");
+    assert.equal(options?.method, "POST");
+    const body = JSON.parse(String(options?.body));
+    assert.deepEqual(body, { link: "https://www.amazon.com/dp/B000TESTING" });
+    return new Response(JSON.stringify(peekResponse), {
       status: 200,
-      headers: { "content-type": "text/html" },
+      headers: { "content-type": "application/json" },
     });
   };
 
@@ -115,9 +140,54 @@ test("POST /gifts/parse returns normalized metadata", async () => {
   const body = response.json();
   assert.deepEqual(body, {
     title: "Stainless Steel Water Bottle",
+    rawTitle: "Amazon.com:   Stainless Steel Water Bottle  ",
     price: 24.49,
-    imageUrl: "https://images.example/bottle.jpg",
+    currency: "USD",
+    imageUrl: "https://images.example/bottle-original.jpg",
+    asin: "B000TESTING",
+    features: ["Keeps drinks cold", "Vacuum insulated"],
+    rating: 4.6,
+    reviewCount: 1250,
   });
+});
+
+test("POST /gifts/parse falls back to null price when unavailable", async () => {
+  const peekResponse = {
+    type: "AMAZON_PRODUCT",
+    amazonProduct: {
+      title: "Amazon.com: Minimal Title",
+      media: [],
+    },
+    page: {
+      rawTextUrl: "https://peekalink.example/raw",
+    },
+  };
+
+  global.fetch = async (url) => {
+    if (url === "https://api.peekalink.io/") {
+      return new Response(JSON.stringify(peekResponse), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url === "https://peekalink.example/raw") {
+      return new Response("No pricing information", { status: 200 });
+    }
+
+    throw new Error(`Unexpected fetch call to ${url}`);
+  };
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/gifts/parse",
+    payload: { url: "https://www.amazon.com/dp/B0TESTING0" },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.price, null);
+  assert.equal(body.currency, null);
 });
 
 test("POST /gifts/parse rejects unsupported domains", async () => {
