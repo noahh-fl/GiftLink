@@ -1,0 +1,57 @@
+.welcome {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--color-bg);
+  padding: var(--space-12) var(--space-6) var(--space-6);
+  box-sizing: border-box;
+  color: var(--color-text);
+}
+
+.welcome__panel {
+  max-width: 640px;
+}
+
+.welcome__eyebrow {
+  margin: 0 0 var(--space-3);
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.welcome__title {
+  margin: 0 0 var(--space-4);
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.1;
+  font-weight: var(--h1-weight);
+}
+
+.welcome__subtitle {
+  margin: 0;
+  font-size: var(--h3-size);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.welcome__actions {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: var(--space-6);
+}
+
+.welcome__actions .button {
+  min-width: 180px;
+}
+
+@media (max-width: 640px) {
+  .welcome {
+    padding: var(--space-8) var(--space-4);
+  }
+
+  .welcome__title {
+    font-size: clamp(28px, 8vw, 40px);
+  }
+}

@@ -1,11 +1,17 @@
+import { getUserIdentity } from "./user";
+
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 export async function apiFetch(
   path: string,
   opts: RequestInit = {},
 ): Promise<Response> {
+  const identity = getUserIdentity();
+
   const headers = {
     "Content-Type": "application/json",
+    "X-User-Id": identity.id,
+    "X-User-Name": identity.label,
     ...(opts.headers || {}),
   } as Record<string, string>;
 

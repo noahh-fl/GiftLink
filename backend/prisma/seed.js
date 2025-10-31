@@ -53,6 +53,36 @@ async function main() {
     console.log(`• ${space.name} → "${space.joinCode}"`);
   }
 
+  await prisma.reward.deleteMany({
+    where: { spaceId: { in: confirmedSpaces.map((space) => space.id) } },
+  });
+
+  const demoRewards = [];
+  for (const space of confirmedSpaces) {
+    demoRewards.push(
+      prisma.reward.create({
+        data: {
+          spaceId: space.id,
+          ownerKey: "demo-owner",
+          title: "Breakfast in bed",
+          points: 40,
+          description: "Surprise your partner with a calm morning tray.",
+        },
+      }),
+      prisma.reward.create({
+        data: {
+          spaceId: space.id,
+          ownerKey: "demo-partner",
+          title: "Movie night pick",
+          points: 25,
+          description: "Winner controls the remote and the snacks.",
+        },
+      }),
+    );
+  }
+
+  await Promise.all(demoRewards);
+
   console.log("🤝 Re-run this seed anytime for a fresh-yet-familiar test bed.");
 }
 
