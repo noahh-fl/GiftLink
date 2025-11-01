@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "db:seed": "cd backend && npm run db:seed"
+    "db:seed": "cd backend && npm run db:seed",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "node scripts/run-frontend-tests.mjs",
+    "test:backend": "npm --prefix backend test"
   },
   "dependencies": {
     "axios": "^1.12.2",

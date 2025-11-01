@@ -3,8 +3,14 @@ import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
 import Button from "../ui/components/Button";
 import PointsBadge from "../components/PointsBadge";
+import { GiftCard } from "../components/GiftCard";
 import { useToast } from "../contexts/ToastContext";
 import { apiFetch } from "../utils/api";
+import {
+  computePointsFromPriceInput,
+  formatCurrencyFromCents,
+  normalizePriceInput,
+} from "../utils/price";
 import type { SpaceOutletContext } from "./SpaceLayout";
 import { useOutletContext } from "react-router-dom";
 import "./SpaceWishlist.css";
@@ -62,17 +68,6 @@ const INITIAL_FORM: GiftFormState = {
   currency: "",
 };
 
-function formatCurrency(priceCents?: number | null) {
-  if (typeof priceCents !== "number" || Number.isNaN(priceCents)) {
-    return "—";
-  }
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(priceCents / 100);
-}
-
 function formatDate(iso?: string) {
   if (!iso) {
     return "—";
@@ -82,33 +77,6 @@ function formatDate(iso?: string) {
     return "—";
   }
   return date.toLocaleDateString();
-}
-
-function normalizePriceInput(value: string): { value: number | null; error?: string } {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return { value: null };
-  }
-
-  const cleaned = trimmed.replace(/[^0-9.,]/g, "").replace(/,/g, ".");
-  if (!cleaned) {
-    return { error: "Enter a valid price." };
-  }
-
-  const parsed = Number.parseFloat(cleaned);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return { error: "Enter a valid price." };
-  }
-
-  return { value: parsed };
-}
-
-function computePointsFromPriceInput(value: string): number | null {
-  const { value: price } = normalizePriceInput(value);
-  if (price === null) {
-    return null;
-  }
-  return Math.max(0, Math.round(price));
 }
 
 function resolveItemPoints(item: WishlistItem): number {
@@ -126,6 +94,82 @@ function resolveItemPoints(item: WishlistItem): number {
   }
   return 0;
 }
+
+function sanitizeWishlistItem(raw: unknown): WishlistItem | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const candidate = raw as Partial<WishlistItem> & { id?: unknown };
+  const numericId =
+    typeof candidate.id === "number"
+      ? candidate.id
+      : Number.parseInt(typeof candidate.id === "string" ? candidate.id : "", 10);
+
+  if (!Number.isFinite(numericId)) {
+    return null;
+  }
+
+  const safeTitle =
+    typeof candidate.title === "string" && candidate.title.trim()
+      ? candidate.title.trim()
+      : `Gift #${numericId}`;
+
+  return {
+    id: numericId,
+    title: safeTitle,
+    url: typeof candidate.url === "string" ? candidate.url : null,
+    image: typeof candidate.image === "string" ? candidate.image : null,
+    priceCents: typeof candidate.priceCents === "number" ? candidate.priceCents : null,
+    notes: typeof candidate.notes === "string" ? candidate.notes : null,
+    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : undefined,
+    gift: candidate.gift ?? null,
+    points: typeof candidate.points === "number" ? candidate.points : null,
+  };
+}
+
+function extractWishlistItems(payload: unknown): WishlistItem[] | null {
+  let source: unknown;
+
+  if (Array.isArray(payload)) {
+    source = payload;
+  } else if (payload && typeof payload === "object") {
+    const container = payload as {
+      gifts?: unknown;
+      items?: unknown;
+      wishlist?: unknown;
+      wishlistItems?: unknown;
+    };
+
+    if (Array.isArray(container.gifts)) {
+      source = container.gifts;
+    } else if (Array.isArray(container.wishlistItems)) {
+      source = container.wishlistItems;
+    } else if (Array.isArray(container.items)) {
+      source = container.items;
+    } else if (Array.isArray(container.wishlist)) {
+      source = container.wishlist;
+    } else if (
+      "gifts" in container ||
+      "items" in container ||
+      "wishlist" in container ||
+      "wishlistItems" in container
+    ) {
+      return [];
+    } else {
+      return null;
+    }
+  } else {
+    return null;
+  }
+
+  const list = Array.isArray(source) ? source : [];
+  return list
+    .map((item) => sanitizeWishlistItem(item))
+    .filter((item): item is WishlistItem => item !== null);
+}
+
+export { extractWishlistItems };
 
 export default function SpaceWishlist() {
   const { space } = useOutletContext<SpaceOutletContext>();
@@ -211,7 +255,7 @@ export default function SpaceWishlist() {
       const response = await apiFetch(`/wishlist?spaceId=${space.id}`);
       const body = await response.json().catch(() => null);
 
-      if (!response.ok || !Array.isArray(body)) {
+      if (!response.ok) {
         throw new Error(
           body && typeof body === "object" && typeof (body as { message?: string }).message === "string"
             ? (body as { message: string }).message
@@ -219,7 +263,12 @@ export default function SpaceWishlist() {
         );
       }
 
-      setItems(body as WishlistItem[]);
+      const extracted = extractWishlistItems(body);
+      if (extracted === null) {
+        throw new Error("Unable to load wishlist items.");
+      }
+
+      setItems(extracted);
       setLoadState("ready");
     } catch (error) {
       const message =
@@ -543,7 +592,7 @@ export default function SpaceWishlist() {
                         id="wishlist-price"
                         value={formState.price}
                         onChange={(event) => setFormState((previous) => ({ ...previous, price: event.target.value }))}
-                        placeholder="49.99"
+                        placeholder={isValueMode ? "" : "e.g. 49.99"}
                         inputMode="decimal"
                         readOnly={!allowEditDetails && !isManualEntry}
                         disabled={submitting}
@@ -585,11 +634,15 @@ export default function SpaceWishlist() {
                     </div>
                   ) : (
                     <div className="space-wishlist__points-summary" aria-live="polite">
-                      <PointsBadge
-                        className="space-wishlist__points-badge"
-                        label={`Worth ${derivedPointsFromPrice ?? 0} pts`}
-                        ariaLabel={`Worth ${derivedPointsFromPrice ?? 0} points`}
-                      />
+                      {derivedPointsFromPrice !== null ? (
+                        <PointsBadge
+                          className="space-wishlist__points-badge"
+                          label={`Worth ${derivedPointsFromPrice} pts`}
+                          ariaLabel={`Worth ${derivedPointsFromPrice} points`}
+                        />
+                      ) : (
+                        <p className="space-wishlist__points-placeholder">Enter a price to estimate points.</p>
+                      )}
                       <p className="space-wishlist__points-caption">Points based on price.</p>
                     </div>
                   )}
@@ -633,19 +686,21 @@ export default function SpaceWishlist() {
                       <dt>Points</dt>
                       <dd>
                         <div className="space-wishlist__preview-points">
-                          <PointsBadge
-                            className="space-wishlist__points-badge"
-                            label={
-                              isValueMode
-                                ? `${liveValueModePoints} pts`
-                                : `Worth ${derivedPointsFromPrice ?? 0} pts`
-                            }
-                            ariaLabel={
-                              isValueMode
-                                ? `${liveValueModePoints} points`
-                                : `Worth ${derivedPointsFromPrice ?? 0} points`
-                            }
-                          />
+                          {isValueMode ? (
+                            <PointsBadge
+                              className="space-wishlist__points-badge"
+                              label={`${liveValueModePoints} pts`}
+                              ariaLabel={`Current points value ${liveValueModePoints} points`}
+                            />
+                          ) : derivedPointsFromPrice !== null ? (
+                            <PointsBadge
+                              className="space-wishlist__points-badge"
+                              label={`Worth ${derivedPointsFromPrice} pts`}
+                              ariaLabel={`Worth ${derivedPointsFromPrice} points`}
+                            />
+                          ) : (
+                            <span className="space-wishlist__points-placeholder">Enter a valid price</span>
+                          )}
                         </div>
                       </dd>
                     </div>
@@ -686,47 +741,27 @@ export default function SpaceWishlist() {
           <div className="space-wishlist__grid">
             {sortedItems.map((item) => {
               const points = resolveItemPoints(item);
+              const priceText = formatCurrencyFromCents(item.priceCents);
+              const priceLabel = priceText !== "—" ? priceText : null;
+              const metaParts: string[] = [];
+              if (item.gift?.status) {
+                metaParts.push(item.gift.status.toLowerCase());
+              }
+              if (item.createdAt) {
+                metaParts.push(`Added ${formatDate(item.createdAt)}`);
+              }
+
               return (
-                <article key={item.id} className="space-wishlist__item">
-                  <div className="space-wishlist__item-media">
-                    {item.image ? (
-                      <img src={item.image} alt={item.title} />
-                    ) : (
-                      <div className="space-wishlist__item-placeholder" aria-hidden="true">
-                        <span>No image</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="space-wishlist__item-body">
-                    <header className="space-wishlist__item-header">
-                      <div>
-                        <h2 className="space-wishlist__item-title">{item.title}</h2>
-                        <p className="space-wishlist__item-price">{formatCurrency(item.priceCents)}</p>
-                      </div>
-                      <PointsBadge
-                        className="space-wishlist__points-badge"
-                        label={`${points} pts`}
-                        ariaLabel={`${points} points`}
-                      />
-                    </header>
-                    {item.notes ? <p className="space-wishlist__notes-text">{item.notes}</p> : null}
-                    <dl className="space-wishlist__meta">
-                      <div>
-                        <dt>Status</dt>
-                        <dd>{item.gift?.status ?? "PENDING"}</dd>
-                      </div>
-                      <div>
-                        <dt>Added</dt>
-                        <dd>{formatDate(item.createdAt)}</dd>
-                      </div>
-                    </dl>
-                    {item.url ? (
-                      <a className="space-wishlist__link" href={item.url} target="_blank" rel="noreferrer">
-                        View link
-                      </a>
-                    ) : null}
-                  </div>
-                </article>
+                <GiftCard
+                  key={item.id}
+                  title={item.title}
+                  image={item.image ?? null}
+                  priceLabel={priceLabel}
+                  pointsLabel={`${points} pts`}
+                  notes={item.notes ?? undefined}
+                  meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
+                  viewHref={item.url ?? null}
+                />
               );
             })}
           </div>

@@ -1,15 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useOutletContext } from "react-router-dom";
 import Button from "../ui/components/Button";
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
 import PointsBadge from "../components/PointsBadge";
+import RewardCard, { renderRewardIcon } from "../components/RewardCard";
+import RewardModal from "../components/RewardModal";
+import ShopTabs from "../components/ShopTabs";
+import { rewardIdeas } from "../data/rewardIdeas";
 import { useToast } from "../contexts/ToastContext";
 import { apiFetch } from "../utils/api";
 import { getUserIdentity } from "../utils/user";
 import type { SpaceOutletContext } from "./SpaceLayout";
 import "./SpacePointShop.css";
+
+const ICON_CHOICES = [
+  "Coffee",
+  "Sun",
+  "Moon",
+  "Music4",
+  "Film",
+  "Camera",
+  "BookOpen",
+  "Gamepad2",
+  "ChefHat",
+  "Flower2",
+  "Gift",
+  "Heart",
+  "PenNib",
+  "Sparkle",
+  "Crown",
+] as const;
+
+type IconChoice = (typeof ICON_CHOICES)[number];
+
+type LoadState = "idle" | "loading" | "error" | "ready";
+type ViewMode = "mine" | "partner";
 
 interface Reward {
   id: number;
@@ -19,10 +45,8 @@ interface Reward {
   ownerKey?: string;
   userId: string;
   updatedAt?: string;
+  icon?: string | null;
 }
-
-type LoadState = "idle" | "loading" | "error" | "ready";
-type ViewMode = "mine" | "others";
 
 export default function SpacePointShop() {
   const { space } = useOutletContext<SpaceOutletContext>();
@@ -31,15 +55,26 @@ export default function SpacePointShop() {
 
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [loadError, setLoadError] = useState("");
   const [view, setView] = useState<ViewMode>("mine");
+
   const [title, setTitle] = useState("");
   const [points, setPoints] = useState("");
   const [description, setDescription] = useState("");
+  const [icon, setIcon] = useState<string>("");
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [loadError, setLoadError] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const [balance, setBalance] = useState<number | null>(null);
+  const [balanceError, setBalanceError] = useState("");
+
+  const [modalReward, setModalReward] = useState<Reward | null>(null);
+  const [modalError, setModalError] = useState("");
+  const [redeemingId, setRedeemingId] = useState<number | null>(null);
+  const [redeemedIds, setRedeemedIds] = useState<number[]>([]);
 
   const loadRewards = useCallback(async () => {
     setLoadState((previous) => (previous === "ready" ? previous : "loading"));
@@ -64,8 +99,10 @@ export default function SpacePointShop() {
           ownerKey: reward.ownerKey ?? owner,
           userId: owner,
           updatedAt: reward.updatedAt,
+          icon: reward.icon ?? null,
         } satisfies Reward;
       });
+
       setRewards(normalized);
       setLoadState("ready");
     } catch (error) {
@@ -75,21 +112,49 @@ export default function SpacePointShop() {
     }
   }, [space.id]);
 
+  const loadBalance = useCallback(async () => {
+    try {
+      const response = await apiFetch(`/spaces/${space.id}/balance`);
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body || typeof body !== "object") {
+        throw new Error("Unable to load balance.");
+      }
+
+      const rawPoints = (body as { points?: unknown }).points;
+      const numericPoints = typeof rawPoints === "number" ? rawPoints : Number.parseInt(String(rawPoints ?? 0), 10);
+      setBalance(Number.isFinite(numericPoints) ? numericPoints : 0);
+      setBalanceError("");
+    } catch (error) {
+      setBalance(null);
+      setBalanceError("Unable to load balance.");
+    }
+  }, [space.id]);
+
   useEffect(() => {
     void loadRewards();
   }, [loadRewards]);
 
-  const filteredRewards = useMemo(() => {
-    if (view === "mine") {
-      return rewards.filter((reward) => reward.userId === identity.id);
-    }
-    return rewards.filter((reward) => reward.userId !== identity.id);
-  }, [identity.id, rewards, view]);
+  useEffect(() => {
+    void loadBalance();
+  }, [loadBalance]);
+
+  const myRewards = useMemo(
+    () => rewards.filter((reward) => reward.userId === identity.id),
+    [rewards, identity.id],
+  );
+  const partnerRewards = useMemo(
+    () => rewards.filter((reward) => reward.userId !== identity.id),
+    [rewards, identity.id],
+  );
+
+  const displayedRewards = view === "mine" ? myRewards : partnerRewards;
 
   function resetForm() {
     setTitle("");
     setPoints("");
     setDescription("");
+    setIcon("");
     setEditingId(null);
     setFormError("");
   }
@@ -99,15 +164,23 @@ export default function SpacePointShop() {
     setTitle(reward.title);
     setPoints(String(reward.points));
     setDescription(reward.description ?? "");
+    setIcon(reward.icon ?? "");
     setFormError("");
     setView("mine");
   }
 
   useEffect(() => {
-    if (view === "others") {
+    if (view === "partner") {
       resetForm();
     }
   }, [view]);
+
+  const handleRandomize = useCallback(() => {
+    const idea = rewardIdeas[Math.floor(Math.random() * rewardIdeas.length)];
+    setTitle(idea.title);
+    setDescription(idea.description);
+    setIcon(idea.icon);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,6 +207,7 @@ export default function SpacePointShop() {
       const payload: Record<string, unknown> = {
         title: trimmedTitle,
         points: parsedPoints,
+        icon: icon ? icon : null,
       };
 
       if (trimmedDescription) {
@@ -156,14 +230,25 @@ export default function SpacePointShop() {
       const body = await response.json().catch(() => null);
 
       if (!response.ok || !body || typeof body !== "object") {
-        throw new Error(editingId ? "Unable to update reward." : "Unable to create reward.");
+        throw new Error(editingId !== null ? "Unable to update reward." : "Unable to create reward.");
       }
 
-      const reward = (body as { reward: Reward }).reward ?? (body as Reward);
+      const rewardPayload = (body as { reward?: Reward }).reward ?? (body as Reward);
+      const normalized: Reward = {
+        id: rewardPayload.id ?? editingId ?? 0,
+        title: rewardPayload.title ?? trimmedTitle,
+        points: rewardPayload.points ?? parsedPoints,
+        description: rewardPayload.description ?? (trimmedDescription || null),
+        ownerKey: rewardPayload.ownerKey ?? identity.id,
+        userId: identity.id,
+        updatedAt: rewardPayload.updatedAt,
+        icon: rewardPayload.icon ?? (icon || null),
+      };
+
       if (editingId !== null) {
-        setRewards((previous) => previous.map((item) => (item.id === editingId ? { ...reward, userId: identity.id } : item)));
+        setRewards((previous) => previous.map((item) => (item.id === editingId ? normalized : item)));
       } else {
-        setRewards((previous) => [{ ...reward, userId: identity.id }, ...previous]);
+        setRewards((previous) => [normalized, ...previous]);
       }
 
       resetForm();
@@ -173,7 +258,7 @@ export default function SpacePointShop() {
       const message =
         error instanceof Error && error.message
           ? error.message
-          : editingId
+          : editingId !== null
             ? "Unable to update reward."
             : "Unable to create reward.";
       setFormError(message);
@@ -217,35 +302,104 @@ export default function SpacePointShop() {
     }
   }
 
+  const handleIconToggle = (choice: IconChoice) => {
+    setIcon((previous) => (previous === choice ? "" : choice));
+  };
+
+  const openRewardDetails = (reward: Reward) => {
+    setModalReward(reward);
+    setModalError("");
+  };
+
+  const closeRewardDetails = () => {
+    if (redeemingId !== null) {
+      return;
+    }
+    setModalReward(null);
+    setModalError("");
+  };
+
+  const handleRedeem = useCallback(async () => {
+    if (!modalReward) {
+      return;
+    }
+
+    if (redeemedIds.includes(modalReward.id)) {
+      setModalError("Reward already redeemed.");
+      return;
+    }
+
+    setRedeemingId(modalReward.id);
+    setModalError("");
+
+    try {
+      const response = await apiFetch(`/spaces/${space.id}/rewards/${modalReward.id}/redeem`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body || typeof body !== "object") {
+        const message =
+          body && typeof (body as { message?: string }).message === "string"
+            ? (body as { message: string }).message
+            : "Unable to redeem reward.";
+        if (response.status === 403) {
+          setModalError(message);
+          return;
+        }
+        throw new Error(message);
+      }
+
+      const balancePayload = (body as { balance?: { points?: number } }).balance;
+      if (balancePayload && typeof balancePayload.points === "number" && Number.isFinite(balancePayload.points)) {
+        setBalance(balancePayload.points);
+        setBalanceError("");
+      }
+
+      setRedeemedIds((previous) => (previous.includes(modalReward.id) ? previous : [...previous, modalReward.id]));
+      showToast({ intent: "success", description: `Redeemed "${modalReward.title}".` });
+      setModalReward(null);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Unable to redeem reward.";
+      setModalError(message);
+    } finally {
+      setRedeemingId(null);
+    }
+  }, [modalReward, redeemedIds, showToast, space.id]);
+
+  const balanceLabel = balance !== null ? `${balance} pts` : "—";
+  const partnerEmptyMessage =
+    "No partner rewards yet. Encourage them to add treats in their shop.";
+  const myEmptyMessage = "You haven’t listed any rewards yet. Add something cozy or fun.";
+
+  const modalRedeemed = modalReward ? redeemedIds.includes(modalReward.id) : false;
+
   return (
     <div className="space-shop" aria-labelledby="space-shop-title">
       <header className="space-shop__header">
-        <div>
+        <div className="space-shop__intro">
           <p className="space-shop__eyebrow">Gift shop</p>
           <h1 id="space-shop-title" className="space-shop__title">
             Rewards for {space.name}
           </h1>
           <p className="space-shop__subtitle">
-            Earn points from gifts, then spend them on thoughtful experiences or favors.
+            Earn points from confirmed gifts, then spend them on thoughtful experiences or favors.
           </p>
         </div>
-        <div className="space-shop__view-toggle" role="radiogroup" aria-label="Choose view">
-          <button
-            type="button"
-            className={view === "mine" ? "space-shop__toggle space-shop__toggle--active" : "space-shop__toggle"}
-            onClick={() => setView("mine")}
-            aria-pressed={view === "mine"}
-          >
-            My rewards
-          </button>
-          <button
-            type="button"
-            className={view === "others" ? "space-shop__toggle space-shop__toggle--active" : "space-shop__toggle"}
-            onClick={() => setView("others")}
-            aria-pressed={view === "others"}
-          >
-            Partner view
-          </button>
+        <div className="space-shop__header-actions">
+          <div className="space-shop__balance" aria-live="polite">
+            <span className="space-shop__balance-label">Points balance</span>
+            <PointsBadge className="space-shop__balance-badge" label={balanceLabel} ariaLabel={`${balanceLabel} available`} />
+            {balanceError ? <span className="space-shop__balance-error">{balanceError}</span> : null}
+          </div>
+          <ShopTabs
+            value={view}
+            tabs={[
+              { value: "mine", label: "My shop" },
+              { value: "partner", label: "Partner shop" },
+            ]}
+            onChange={(next) => setView(next as ViewMode)}
+          />
         </div>
       </header>
 
@@ -260,6 +414,12 @@ export default function SpacePointShop() {
               disabled={submitting}
             />
           </FormField>
+
+          <div className="space-shop__form-toolbar">
+            <Button type="button" variant="secondary" onClick={handleRandomize} disabled={submitting}>
+              Randomize idea
+            </Button>
+          </div>
 
           <FormField htmlFor="reward-points" label="Points" hint="Whole numbers only" required>
             <Input
@@ -282,6 +442,28 @@ export default function SpacePointShop() {
             />
           </FormField>
 
+          <fieldset className="space-shop__icons">
+            <legend>Icon (optional)</legend>
+            <div className="space-shop__icon-grid">
+              {ICON_CHOICES.map((choice) => {
+                const active = icon === choice;
+                return (
+                  <button
+                    key={choice}
+                    type="button"
+                    className={active ? "space-shop__icon-button space-shop__icon-button--active" : "space-shop__icon-button"}
+                    onClick={() => handleIconToggle(choice)}
+                    aria-pressed={active}
+                    disabled={submitting}
+                  >
+                    <span className="space-shop__icon-visual">{renderRewardIcon(choice)}</span>
+                    <span className="space-shop__icon-name">{choice}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
           {formError ? (
             <p className="space-shop__status space-shop__status--error" role="alert">
               {formError}
@@ -299,13 +481,7 @@ export default function SpacePointShop() {
             </Button>
           </div>
         </form>
-      ) : (
-        <div className="space-shop__form space-shop__form--inactive" aria-live="polite">
-          <p className="space-shop__partner-note">
-            Switch to “My rewards” to add or edit your own treats. Partner rewards are read-only here.
-          </p>
-        </div>
-      )}
+      ) : null}
 
       <section className="space-shop__list" aria-live="polite">
         {loadState === "loading" ? <p className="space-shop__loading">Loading rewards…</p> : null}
@@ -317,36 +493,46 @@ export default function SpacePointShop() {
             </Button>
           </div>
         ) : null}
-        {loadState === "ready" && filteredRewards.length === 0 ? (
-          <p className="space-shop__empty">
-            {view === "mine"
-              ? "You haven’t listed any rewards yet. Add something cozy or fun."
-              : "No partner rewards yet. Encourage them to add a few treats."}
-          </p>
+        {loadState === "ready" && displayedRewards.length === 0 ? (
+          <p className="space-shop__empty">{view === "mine" ? myEmptyMessage : partnerEmptyMessage}</p>
         ) : null}
-        {loadState === "ready" && filteredRewards.length > 0 ? (
-          <div className="space-shop__grid">
-            {filteredRewards.map((reward) => (
-              <article key={reward.id} className="space-shop__item">
-                <header className="space-shop__item-header">
-                  <h2>{reward.title}</h2>
-                  <PointsBadge
-                    className="space-shop__points-badge"
-                    label={`${reward.points} pts`}
-                    ariaLabel={`${reward.points} points`}
+
+        {loadState === "ready" && displayedRewards.length > 0 ? (
+          view === "partner" ? (
+            <div className="space-shop__reward-grid">
+              {displayedRewards.map((reward) => {
+                const redeemed = redeemedIds.includes(reward.id);
+                return (
+                  <RewardCard
+                    key={reward.id}
+                    title={reward.title}
+                    description={reward.description}
+                    points={reward.points}
+                    icon={reward.icon}
+                    status={redeemed ? "redeemed" : "default"}
+                    onView={() => openRewardDetails(reward)}
+                    disabled={redeemed}
                   />
-                </header>
-                {reward.description ? <p className="space-shop__description">{reward.description}</p> : null}
-                {reward.userId === identity.id && view === "mine" ? (
-                  <div className="space-shop__item-actions">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => startEdit(reward)}
-                      disabled={submitting || deletingId === reward.id}
-                    >
-                      Edit
-                    </Button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-shop__list-grid">
+              {displayedRewards.map((reward) => (
+                <div key={reward.id} className="space-shop__list-card">
+                  <RewardCard
+                    title={reward.title}
+                    description={reward.description}
+                    points={reward.points}
+                    icon={reward.icon}
+                    onView={() => startEdit(reward)}
+                    actionLabel="Edit details"
+                    disabled={submitting || deletingId === reward.id}
+                  />
+                  <div className="space-shop__list-footer">
+                    <p className="space-shop__timestamp">
+                      Updated {reward.updatedAt ? new Date(reward.updatedAt).toLocaleDateString() : "recently"}
+                    </p>
                     <Button
                       type="button"
                       variant="secondary"
@@ -356,17 +542,26 @@ export default function SpacePointShop() {
                       {deletingId === reward.id ? "Deleting…" : "Delete"}
                     </Button>
                   </div>
-                ) : null}
-                <footer>
-                  <p className="space-shop__timestamp">
-                    Updated {reward.updatedAt ? new Date(reward.updatedAt).toLocaleDateString() : "recently"}
-                  </p>
-                </footer>
-              </article>
-            ))}
-          </div>
+                </div>
+              ))}
+            </div>
+          )
         ) : null}
       </section>
+
+      <RewardModal
+        open={modalReward !== null}
+        onClose={closeRewardDetails}
+        title={modalReward?.title ?? ""}
+        description={modalReward?.description}
+        icon={modalReward?.icon}
+        points={modalReward?.points ?? 0}
+        onRedeem={!modalRedeemed ? handleRedeem : undefined}
+        redeemDisabled={modalRedeemed || redeemingId === modalReward?.id}
+        redeemLabel={modalRedeemed ? "Redeemed" : "Redeem now"}
+        error={modalError}
+        renderIcon={renderRewardIcon}
+      />
     </div>
   );
 }

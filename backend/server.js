@@ -199,6 +199,23 @@ const joinAttemptTracker = new Map();
 
 const DEFAULT_SPACE_MODE = "price";
 
+const LEDGER_ENTRY_TYPES = {
+  CREDIT: "CREDIT",
+  DEBIT: "DEBIT",
+};
+
+const ACTIVITY_TYPES = {
+  WISHLIST_ADD: "wishlist_add",
+  REWARD_ADD: "reward_add",
+  REWARD_EDIT: "reward_edit",
+  REWARD_REDEEM: "reward_redeem",
+};
+
+const REDEMPTION_STATUS = {
+  PENDING: "PENDING",
+  REDEEMED: "REDEEMED",
+};
+
 const ERROR_CODES = {
   BAD_REQUEST: "BAD_REQUEST",
   NOT_FOUND: "NOT_FOUND",
@@ -662,6 +679,19 @@ function resolveUserKey(req) {
   return "anonymous-tester";
 }
 
+function normalizeExternalUserKey(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.slice(0, 120);
+}
+
 app.post("/space", async (req, res) => {
   const { name, description, mode } = req.body ?? {};
   const trimmedName = typeof name === "string" ? name.trim() : "";
@@ -1019,6 +1049,81 @@ app.get("/spaces/:id/rewards", async (req, res) => {
   }
 });
 
+app.get("/spaces/:id/balance", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const userKey = resolveUserKey(req);
+
+  try {
+    const points = await computeBalance(prisma, spaceId, userKey);
+    return res.status(200).send({ userId: userKey, points });
+  } catch (balanceError) {
+    req.log.error({ err: balanceError }, "Failed to compute balance");
+    return sendJsonError(res, 500, "Failed to compute balance.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.get("/spaces/:id/ledger", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const fallbackUser = resolveUserKey(req);
+  const rawUserParam = Array.isArray(req.query?.user) ? req.query?.user[0] : req.query?.user;
+  const requestedUser = normalizeExternalUserKey(rawUserParam) ?? fallbackUser;
+  const rawLimit = Array.isArray(req.query?.limit) ? req.query?.limit[0] : req.query?.limit;
+  const parsedLimit = Number.parseInt(rawLimit ?? "", 10);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 100;
+
+  try {
+    const [entries, points] = await Promise.all([
+      prisma.ledgerEntry.findMany({
+        where: { spaceId, userKey: requestedUser },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      }),
+      computeBalance(prisma, spaceId, requestedUser),
+    ]);
+
+    return res.status(200).send({
+      userId: requestedUser,
+      points,
+      entries: entries.map(serializeLedgerEntry),
+    });
+  } catch (ledgerError) {
+    req.log.error({ err: ledgerError }, "Failed to load ledger");
+    return sendJsonError(res, 500, "Failed to load ledger.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.get("/spaces/:id/activity", async (req, res) => {
+  const { value: spaceId, error } = parseSpaceId(req.params.id);
+  if (error) {
+    return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const rawLimit = Array.isArray(req.query?.limit) ? req.query?.limit[0] : req.query?.limit;
+  const parsedLimit = Number.parseInt(rawLimit ?? "", 10);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
+
+  try {
+    const activity = await prisma.activity.findMany({
+      where: { spaceId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+
+    return res.status(200).send({ activity: activity.map(serializeActivity) });
+  } catch (activityError) {
+    req.log.error({ err: activityError }, "Failed to load activity");
+    return sendJsonError(res, 500, "Failed to load activity.", ERROR_CODES.INTERNAL);
+  }
+});
+
 app.post("/spaces/:id/rewards", async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
@@ -1042,6 +1147,7 @@ app.post("/spaces/:id/rewards", async (req, res) => {
   }
 
   const description = sanitizeNullableString(req.body.description);
+  const icon = sanitizeIconName(req.body.icon);
 
   try {
     const space = await prisma.space.findUnique({
@@ -1060,6 +1166,18 @@ app.post("/spaces/:id/rewards", async (req, res) => {
         title,
         points: Math.trunc(pointsValue),
         description,
+        icon,
+      },
+    });
+
+    await logActivity(prisma, {
+      spaceId,
+      actorKey: ownerKey,
+      type: ACTIVITY_TYPES.REWARD_ADD,
+      payload: {
+        rewardId: created.id,
+        title: created.title,
+        points: created.points,
       },
     });
 
@@ -1098,6 +1216,7 @@ app.put("/spaces/:id/rewards/:rewardId", async (req, res) => {
   }
 
   const description = sanitizeNullableString(req.body.description);
+  const icon = sanitizeIconName(req.body.icon);
 
   try {
     const existing = await prisma.reward.findUnique({
@@ -1118,6 +1237,18 @@ app.put("/spaces/:id/rewards/:rewardId", async (req, res) => {
         title,
         points: Math.trunc(pointsValue),
         description,
+        icon,
+      },
+    });
+
+    await logActivity(prisma, {
+      spaceId,
+      actorKey: ownerKey,
+      type: ACTIVITY_TYPES.REWARD_EDIT,
+      payload: {
+        rewardId: updated.id,
+        title: updated.title,
+        points: updated.points,
       },
     });
 
@@ -1125,6 +1256,94 @@ app.put("/spaces/:id/rewards/:rewardId", async (req, res) => {
   } catch (updateError) {
     req.log.error({ err: updateError }, "Failed to update reward");
     return sendJsonError(res, 500, "Failed to update reward.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/spaces/:id/rewards/:rewardId/redeem", async (req, res) => {
+  const { value: spaceId, error: spaceError } = parseSpaceId(req.params.id);
+  if (spaceError) {
+    return sendJsonError(res, 400, spaceError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const { value: rewardId, error: rewardError } = parseSpaceId(req.params.rewardId);
+  if (rewardError) {
+    return sendJsonError(res, 400, rewardError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const redeemerKey = resolveUserKey(req);
+
+  try {
+    const reward = await prisma.reward.findUnique({
+      where: { id: rewardId },
+    });
+
+    if (!reward || reward.spaceId !== spaceId) {
+      return sendJsonError(res, 404, "Reward not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (reward.ownerKey === redeemerKey) {
+      return sendJsonError(res, 403, "You cannot redeem your own reward.", ERROR_CODES.FORBIDDEN);
+    }
+
+    if (!Number.isFinite(reward.points) || reward.points <= 0) {
+      return sendJsonError(res, 400, "Reward is missing a points value.", ERROR_CODES.BAD_REQUEST);
+    }
+
+    const balance = await computeBalance(prisma, spaceId, redeemerKey);
+    if (balance < reward.points) {
+      return sendJsonError(
+        res,
+        403,
+        "Not enough points to redeem this reward.",
+        ERROR_CODES.FORBIDDEN,
+      );
+    }
+
+    const { redemption } = await prisma.$transaction(async (tx) => {
+      const redemption = await tx.rewardRedemption.create({
+        data: {
+          spaceId,
+          rewardId,
+          redeemerKey,
+          status: REDEMPTION_STATUS.PENDING,
+        },
+      });
+
+      await createLedgerEntry(tx, {
+        spaceId,
+        userKey: redeemerKey,
+        type: LEDGER_ENTRY_TYPES.DEBIT,
+        points: reward.points,
+        reason: "reward:redeem",
+        meta: {
+          redemptionId: redemption.id,
+          rewardId: reward.id,
+        },
+      });
+
+      return { redemption };
+    });
+
+    const points = await computeBalance(prisma, spaceId, redeemerKey);
+
+    await logActivity(prisma, {
+      spaceId,
+      actorKey: redeemerKey,
+      type: ACTIVITY_TYPES.REWARD_REDEEM,
+      payload: {
+        rewardId: reward.id,
+        title: reward.title,
+        points: reward.points,
+      },
+    });
+
+    return res.status(201).send({
+      balance: { userId: redeemerKey, points },
+      purchase: serializeRedemption(redemption),
+    });
+  } catch (redeemError) {
+    req.log.error({ err: redeemError }, "Failed to redeem reward");
+    return sendJsonError(res, 500, "Failed to redeem reward.", ERROR_CODES.INTERNAL);
   }
 });
 
@@ -1187,6 +1406,24 @@ function sanitizeNullableString(value) {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function sanitizeIconName(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const cleaned = trimmed.replace(/[^0-9A-Za-z-]/g, "");
+  if (!cleaned) {
+    return null;
+  }
+
+  return cleaned.slice(0, 60);
 }
 
 function normalizePriority(value, { defaultValue = "MEDIUM", allowNull = false } = {}) {
@@ -1463,9 +1700,127 @@ function serializeReward(reward) {
     title: reward.title,
     points: reward.points,
     description: reward.description,
+    icon: reward.icon ?? null,
     createdAt: serializeDate(reward.createdAt),
     updatedAt: serializeDate(reward.updatedAt),
   };
+}
+
+function serializeLedgerEntry(entry) {
+  return {
+    id: entry.id,
+    spaceId: entry.spaceId,
+    userId: entry.userKey,
+    type: entry.type,
+    points: entry.points,
+    reason: entry.reason,
+    meta: entry.meta ?? null,
+    createdAt: serializeDate(entry.createdAt),
+  };
+}
+
+function serializeActivity(activity) {
+  return {
+    id: activity.id,
+    spaceId: activity.spaceId,
+    actor: activity.actorKey,
+    type: activity.type,
+    payload: activity.payload ?? null,
+    createdAt: serializeDate(activity.createdAt),
+  };
+}
+
+function serializeRedemption(redemption) {
+  return {
+    id: redemption.id,
+    spaceId: redemption.spaceId,
+    rewardId: redemption.rewardId,
+    redeemer: redemption.redeemerKey,
+    status: redemption.status,
+    createdAt: serializeDate(redemption.createdAt),
+    updatedAt: serializeDate(redemption.updatedAt),
+  };
+}
+
+async function logActivity(client, { spaceId, actorKey, type, payload }) {
+  if (!spaceId || !actorKey || !type) {
+    return null;
+  }
+
+  const db = client ?? prisma;
+
+  if (!db?.activity?.create) {
+    return null;
+  }
+
+  try {
+    const created = await db.activity.create({
+      data: {
+        spaceId,
+        actorKey,
+        type,
+        payload: payload ?? null,
+      },
+    });
+    return created;
+  } catch (error) {
+    console.warn("Unable to log activity", error);
+    return null;
+  }
+}
+
+async function createLedgerEntry(client, { spaceId, userKey, type, points, reason, meta }) {
+  const numeric = typeof points === "number" ? points : Number.parseInt(points, 10);
+  const sanitizedPoints = Math.max(0, Number.isFinite(numeric) ? Math.trunc(numeric) : 0);
+
+  if (!spaceId || !userKey || !type || sanitizedPoints <= 0 || !reason) {
+    return null;
+  }
+
+  const db = client ?? prisma;
+
+  if (!db?.ledgerEntry?.create) {
+    return null;
+  }
+
+  return db.ledgerEntry.create({
+    data: {
+      spaceId,
+      userKey,
+      type,
+      points: sanitizedPoints,
+      reason,
+      meta: meta ?? null,
+    },
+  });
+}
+
+async function computeBalance(client, spaceId, userKey) {
+  if (!spaceId || !userKey) {
+    return 0;
+  }
+
+  const db = client ?? prisma;
+
+  if (!db?.ledgerEntry?.aggregate) {
+    return 0;
+  }
+
+  const [credits, debits] = await Promise.all([
+    db.ledgerEntry.aggregate({
+      _sum: { points: true },
+      where: { spaceId, userKey, type: LEDGER_ENTRY_TYPES.CREDIT },
+    }),
+    db.ledgerEntry.aggregate({
+      _sum: { points: true },
+      where: { spaceId, userKey, type: LEDGER_ENTRY_TYPES.DEBIT },
+    }),
+  ]);
+
+  const creditTotal = credits?._sum?.points ?? 0;
+  const debitTotal = debits?._sum?.points ?? 0;
+
+  return Math.max(0, creditTotal - debitTotal);
 }
 
 function parseSentimentPoints(value) {
@@ -1573,6 +1928,8 @@ app.post("/wishlist", async (req, res) => {
       return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
     }
 
+    const actorKey = resolveUserKey(req);
+
     const created = await prisma.wishlistItem.create({
       data: {
         spaceId,
@@ -1591,6 +1948,16 @@ app.post("/wishlist", async (req, res) => {
         },
       },
       include: { gift: true, space: { select: { mode: true } } },
+    });
+
+    await logActivity(prisma, {
+      spaceId,
+      actorKey,
+      type: ACTIVITY_TYPES.WISHLIST_ADD,
+      payload: {
+        itemId: created.id,
+        title: created.title,
+      },
     });
 
     return res.status(201).send(mapWishlistItem(created));
@@ -1678,6 +2045,8 @@ app.post("/spaces/:id/gifts", async (req, res) => {
       }
     }
 
+    const actorKey = resolveUserKey(req);
+
     const created = await prisma.wishlistItem.create({
       data: {
         spaceId,
@@ -1694,6 +2063,16 @@ app.post("/spaces/:id/gifts", async (req, res) => {
         },
       },
       include: { gift: true, space: { select: { mode: true } } },
+    });
+
+    await logActivity(prisma, {
+      spaceId,
+      actorKey,
+      type: ACTIVITY_TYPES.WISHLIST_ADD,
+      payload: {
+        itemId: created.id,
+        title: created.title,
+      },
     });
 
     return res.status(201).send({ wishlistItem: mapWishlistItem(created) });
@@ -1831,10 +2210,15 @@ app.post("/gift/:id/reserve", async (req, res) => {
     return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
   }
 
-  const giverId = Number.parseInt(req.body.giverId, 10);
+  const payload = req.body;
+
+  const giverId = Number.parseInt(payload.giverId, 10);
   if (!Number.isFinite(giverId) || giverId <= 0) {
     return sendJsonError(res, 400, "giverId must be a positive integer.", ERROR_CODES.BAD_REQUEST);
   }
+
+  const actorKey = resolveUserKey(req);
+  const creditTarget = normalizeExternalUserKey(payload?.giverKey) ?? actorKey;
 
   try {
     const gift = await loadGiftWithContext(giftId);
@@ -1978,6 +2362,8 @@ app.post("/gift/:id/receive", async (req, res) => {
     }
 
     const spaceMode = gift.wishlistItem?.space?.mode ?? DEFAULT_SPACE_MODE;
+    const actorKey = resolveUserKey(req);
+    const creditTarget = normalizeExternalUserKey(payload?.giverKey) ?? actorKey;
     let sentimentPointsUpdate = undefined;
 
     if (spaceMode === "sentiment") {
@@ -2031,6 +2417,18 @@ app.post("/gift/:id/receive", async (req, res) => {
           await tx.space.update({
             where: { id: updatedGift.wishlistItem.space.id },
             data: { points: { increment: lifecyclePoints.points } },
+          });
+
+          await createLedgerEntry(tx, {
+            spaceId: updatedGift.wishlistItem.space.id,
+            userKey: creditTarget,
+            type: LEDGER_ENTRY_TYPES.CREDIT,
+            points: lifecyclePoints.points,
+            reason: "gift:receive",
+            meta: {
+              giftId: updatedGift.id,
+              wishlistItemId: updatedGift.wishlistItemId,
+            },
           });
         }
 

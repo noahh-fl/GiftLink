@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
+import ErrorBoundary from "../components/ErrorBoundary";
 import Button from "../ui/components/Button";
 import { apiFetch } from "../utils/api";
 import { useSpace } from "../contexts/SpaceContext";
+import { getUserIdentity, subscribeToUserChanges, type UserIdentity } from "../utils/user";
 import "./SpaceLayout.css";
 
 type LoadState = "idle" | "loading" | "error" | "ready";
@@ -29,11 +31,19 @@ export default function SpaceLayout() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [space, setSpace] = useState<SpaceDetails | null>(null);
   const [error, setError] = useState("");
+  const [identity, setIdentity] = useState<UserIdentity>(() => getUserIdentity());
 
   const numericSpaceId = useMemo(() => {
     const parsed = Number.parseInt(spaceId ?? "", 10);
     return Number.isFinite(parsed) ? parsed : null;
   }, [spaceId]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToUserChanges((nextIdentity) => {
+      setIdentity(nextIdentity);
+    });
+    return unsubscribe;
+  }, []);
 
   const fetchSpace = useCallback(async () => {
     if (numericSpaceId === null) {
@@ -94,9 +104,12 @@ export default function SpaceLayout() {
       { to: ".", label: "Dashboard", end: true },
       { to: "wishlist", label: "Wishlist" },
       { to: "shop", label: "Gift shop" },
+      { to: "inbox", label: "Inbox" },
     ],
     [],
   );
+
+  const isSpaceIdInvalid = numericSpaceId === null;
 
   return (
     <div className="space-layout">
@@ -112,25 +125,33 @@ export default function SpaceLayout() {
             ) : null}
           </div>
         </div>
-        <nav aria-label="Space">
-          <ul className="space-layout__nav" role="list">
-            {navItems.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    ["space-layout__nav-link", isActive ? "space-layout__nav-link--active" : ""]
-                      .filter(Boolean)
-                      .join(" ")
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <div className="space-layout__header-tools">
+          {import.meta.env.DEV ? (
+            <div className="space-layout__tester" aria-live="polite">
+              <span className="space-layout__tester-label">Tester</span>
+              <span className="space-layout__tester-value">{identity.id}</span>
+            </div>
+          ) : null}
+          <nav aria-label="Space">
+            <ul className="space-layout__nav" role="list">
+              {navItems.map((item) => (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      ["space-layout__nav-link", isActive ? "space-layout__nav-link--active" : ""]
+                        .filter(Boolean)
+                        .join(" ")
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </div>
       </header>
 
       <main className="space-layout__main" aria-live="polite">
@@ -140,13 +161,39 @@ export default function SpaceLayout() {
         {loadState === "error" ? (
           <div className="space-layout__status space-layout__status--error">
             <p>{error}</p>
-            <Button type="button" variant="secondary" onClick={() => fetchSpace()}>
-              Retry
-            </Button>
+            <div className="space-layout__error-actions">
+              <Button type="button" variant="secondary" onClick={() => fetchSpace()}>
+                Retry
+              </Button>
+              {isSpaceIdInvalid ? (
+                <Button type="button" onClick={() => navigate("/")}>
+                  Back to dashboard
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {loadState === "ready" && space ? (
-          <Outlet context={{ space, refreshSpace: fetchSpace }} />
+          <ErrorBoundary
+            resetKeys={[space.id, loadState]}
+            fallback={({ reset }) => (
+              <div className="space-layout__status space-layout__status--error">
+                <p>Something went wrong. Please try again.</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    reset();
+                    void fetchSpace();
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+          >
+            <Outlet context={{ space, refreshSpace: fetchSpace }} />
+          </ErrorBoundary>
         ) : null}
       </main>
     </div>
