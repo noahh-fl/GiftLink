@@ -10,6 +10,7 @@ import SpaceLayout from "./pages/SpaceLayout";
 import SpaceDashboard from "./pages/SpaceDashboard";
 import SpaceWishlist from "./pages/SpaceWishlist";
 import SpacePointShop from "./pages/SpacePointShop";
+import SpaceInbox from "./pages/SpaceInbox";
 
 import "./ui/tokens/tokens.css";
 import "./ui/styles/base.css";
@@ -25,6 +26,7 @@ function AppRoutes() {
         <Route index element={<SpaceDashboard />} />
         <Route path="wishlist" element={<SpaceWishlist />} />
         <Route path="shop" element={<SpacePointShop />} />
+        <Route path="inbox" element={<SpaceInbox />} />
         <Route path="*" element={<Navigate to="." replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -27,6 +27,9 @@ model Space {
   updatedAt     DateTime       @updatedAt
   wishlistItems WishlistItem[]
   rewards       Reward[]
+  ledger        LedgerEntry[]
+  activities    Activity[]
+  redemptions   RewardRedemption[]
 }
 
 model WishlistItem {
@@ -72,11 +75,70 @@ model Reward {
   title       String
   points      Int
   description String?
+  icon        String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   space       Space    @relation(fields: [spaceId], references: [id])
+  redemptions RewardRedemption[]
 
   @@index([spaceId, ownerKey])
+}
+
+model LedgerEntry {
+  id        Int             @id @default(autoincrement())
+  spaceId   Int
+  userKey   String
+  type      LedgerEntryType
+  points    Int
+  reason    String
+  meta      Json?
+  createdAt DateTime        @default(now())
+  space     Space           @relation(fields: [spaceId], references: [id])
+
+  @@index([spaceId, userKey, createdAt])
+}
+
+model Activity {
+  id        Int           @id @default(autoincrement())
+  spaceId   Int
+  actorKey  String
+  type      ActivityType
+  payload   Json?
+  createdAt DateTime       @default(now())
+  space     Space          @relation(fields: [spaceId], references: [id])
+
+  @@index([spaceId, createdAt])
+}
+
+model RewardRedemption {
+  id          Int                  @id @default(autoincrement())
+  spaceId     Int
+  rewardId    Int
+  redeemerKey String
+  status      RedemptionStatus     @default(PENDING)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  reward      Reward               @relation(fields: [rewardId], references: [id])
+  space       Space                @relation(fields: [spaceId], references: [id])
+
+  @@index([spaceId, redeemerKey, createdAt])
+}
+
+enum LedgerEntryType {
+  CREDIT
+  DEBIT
+}
+
+enum ActivityType {
+  wishlist_add
+  reward_add
+  reward_edit
+  reward_redeem
+}
+
+enum RedemptionStatus {
+  PENDING
+  REDEEMED
 }
 
 enum Priority {

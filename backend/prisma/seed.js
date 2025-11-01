@@ -53,8 +53,19 @@ async function main() {
     console.log(`• ${space.name} → "${space.joinCode}"`);
   }
 
+  const spaceIds = confirmedSpaces.map((space) => space.id);
+
+  await prisma.rewardRedemption.deleteMany({
+    where: { spaceId: { in: spaceIds } },
+  });
+  await prisma.ledgerEntry.deleteMany({
+    where: { spaceId: { in: spaceIds } },
+  });
+  await prisma.activity.deleteMany({
+    where: { spaceId: { in: spaceIds } },
+  });
   await prisma.reward.deleteMany({
-    where: { spaceId: { in: confirmedSpaces.map((space) => space.id) } },
+    where: { spaceId: { in: spaceIds } },
   });
 
   const demoRewards = [];
@@ -67,6 +78,7 @@ async function main() {
           title: "Breakfast in bed",
           points: 40,
           description: "Surprise your partner with a calm morning tray.",
+          icon: "Coffee",
         },
       }),
       prisma.reward.create({
@@ -76,6 +88,7 @@ async function main() {
           title: "Movie night pick",
           points: 25,
           description: "Winner controls the remote and the snacks.",
+          icon: "Film",
         },
       }),
     );

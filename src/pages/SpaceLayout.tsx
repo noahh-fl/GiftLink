@@ -94,6 +94,7 @@ export default function SpaceLayout() {
       { to: ".", label: "Dashboard", end: true },
       { to: "wishlist", label: "Wishlist" },
       { to: "shop", label: "Gift shop" },
+      { to: "inbox", label: "Inbox" },
     ],
     [],
   );

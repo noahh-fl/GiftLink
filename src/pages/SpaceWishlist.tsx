@@ -686,47 +686,27 @@ export default function SpaceWishlist() {
           <div className="space-wishlist__grid">
             {sortedItems.map((item) => {
               const points = resolveItemPoints(item);
+              const priceText = formatCurrency(item.priceCents);
+              const priceLabel = priceText !== "—" ? priceText : null;
+              const metaParts: string[] = [];
+              if (item.gift?.status) {
+                metaParts.push(item.gift.status.toLowerCase());
+              }
+              if (item.createdAt) {
+                metaParts.push(`Added ${formatDate(item.createdAt)}`);
+              }
+
               return (
-                <article key={item.id} className="space-wishlist__item">
-                  <div className="space-wishlist__item-media">
-                    {item.image ? (
-                      <img src={item.image} alt={item.title} />
-                    ) : (
-                      <div className="space-wishlist__item-placeholder" aria-hidden="true">
-                        <span>No image</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="space-wishlist__item-body">
-                    <header className="space-wishlist__item-header">
-                      <div>
-                        <h2 className="space-wishlist__item-title">{item.title}</h2>
-                        <p className="space-wishlist__item-price">{formatCurrency(item.priceCents)}</p>
-                      </div>
-                      <PointsBadge
-                        className="space-wishlist__points-badge"
-                        label={`${points} pts`}
-                        ariaLabel={`${points} points`}
-                      />
-                    </header>
-                    {item.notes ? <p className="space-wishlist__notes-text">{item.notes}</p> : null}
-                    <dl className="space-wishlist__meta">
-                      <div>
-                        <dt>Status</dt>
-                        <dd>{item.gift?.status ?? "PENDING"}</dd>
-                      </div>
-                      <div>
-                        <dt>Added</dt>
-                        <dd>{formatDate(item.createdAt)}</dd>
-                      </div>
-                    </dl>
-                    {item.url ? (
-                      <a className="space-wishlist__link" href={item.url} target="_blank" rel="noreferrer">
-                        View link
-                      </a>
-                    ) : null}
-                  </div>
-                </article>
+                <GiftCard
+                  key={item.id}
+                  title={item.title}
+                  image={item.image ?? null}
+                  priceLabel={priceLabel}
+                  pointsLabel={`${points} pts`}
+                  notes={item.notes ?? undefined}
+                  meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
+                  viewHref={item.url ?? null}
+                />
               );
             })}
           </div>
