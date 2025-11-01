@@ -35,6 +35,16 @@ before(async () => {
     },
   );
 
+  execFileSync(
+    "npx",
+    ["prisma", "generate"],
+    {
+      cwd: backendRoot,
+      env: { ...process.env, DATABASE_URL: `file:${testDbPath}` },
+      stdio: "inherit",
+    },
+  );
+
   const serverModule = await import("../server.js");
   app = serverModule.app;
   await app.ready();
@@ -42,9 +52,15 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  await prisma.activity.deleteMany();
-  await prisma.rewardRedemption.deleteMany();
-  await prisma.ledgerEntry.deleteMany();
+  if (prisma.activity?.deleteMany) {
+    await prisma.activity.deleteMany();
+  }
+  if (prisma.rewardRedemption?.deleteMany) {
+    await prisma.rewardRedemption.deleteMany();
+  }
+  if (prisma.ledgerEntry?.deleteMany) {
+    await prisma.ledgerEntry.deleteMany();
+  }
   await prisma.reward.deleteMany();
   await prisma.wishlistItem.deleteMany();
   await prisma.space.deleteMany();

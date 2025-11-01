@@ -1749,6 +1749,10 @@ async function logActivity(client, { spaceId, actorKey, type, payload }) {
 
   const db = client ?? prisma;
 
+  if (!db?.activity?.create) {
+    return null;
+  }
+
   try {
     const created = await db.activity.create({
       data: {
@@ -1775,6 +1779,10 @@ async function createLedgerEntry(client, { spaceId, userKey, type, points, reaso
 
   const db = client ?? prisma;
 
+  if (!db?.ledgerEntry?.create) {
+    return null;
+  }
+
   return db.ledgerEntry.create({
     data: {
       spaceId,
@@ -1793,6 +1801,10 @@ async function computeBalance(client, spaceId, userKey) {
   }
 
   const db = client ?? prisma;
+
+  if (!db?.ledgerEntry?.aggregate) {
+    return 0;
+  }
 
   const [credits, debits] = await Promise.all([
     db.ledgerEntry.aggregate({

@@ -1,7 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Button from "../ui/components/Button";
 import Input from "../ui/components/Input";
 import { apiFetch } from "../utils/api";
+import {
+  getCurrentUserId,
+  listTestUsers,
+  setCurrentUserId,
+  subscribeToUserChanges,
+} from "../utils/user";
 import "./SpaceDebugPanel.css";
 
 interface DebugSpaceSummary {
@@ -48,11 +54,26 @@ export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebug
   const [probeError, setProbeError] = useState("");
   const [probeStatus, setProbeStatus] = useState("");
   const [probeLoading, setProbeLoading] = useState(false);
+  const testers = useMemo(() => listTestUsers(), []);
+  const [activeTester, setActiveTester] = useState<string>(() => getCurrentUserId());
 
   const spaceOptions = useMemo(() => spaces.map((item) => ({ id: item.id, name: item.name })), [spaces]);
 
   if (!import.meta.env.DEV) {
     return null;
+  }
+
+  useEffect(() => {
+    const unsubscribe = subscribeToUserChanges((identity) => {
+      setActiveTester(identity.id);
+    });
+    return unsubscribe;
+  }, []);
+
+  function handleTesterChange(event: ChangeEvent<HTMLSelectElement>) {
+    const next = event.target.value;
+    setCurrentUserId(next);
+    setActiveTester(next);
   }
 
   async function listSpaces() {
@@ -239,6 +260,27 @@ export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebug
           </Button>
         </div>
       </header>
+
+      <div className="debug-panel__tester">
+        <label className="debug-panel__tester-label" htmlFor="debug-active-tester">
+          Active tester
+        </label>
+        <select
+          id="debug-active-tester"
+          className="debug-panel__tester-select"
+          value={activeTester}
+          onChange={handleTesterChange}
+        >
+          {testers.map((tester) => (
+            <option key={tester} value={tester}>
+              {tester}
+            </option>
+          ))}
+        </select>
+        <p className="debug-panel__tester-caption">
+          Requests now send as <span>{activeTester}</span>.
+        </p>
+      </div>
 
       <div className="debug-panel__actions">
         <Button type="button" onClick={() => void listSpaces()} disabled={loading}>

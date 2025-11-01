@@ -115,6 +115,42 @@ const gridStyles: CSSProperties = {
   width: "100%",
 };
 
+const cardWrapperStyles: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-3)",
+};
+
+const confirmButtonStyles: CSSProperties = {
+  alignSelf: "flex-start",
+  background: "var(--color-accent)",
+  color: "var(--color-surface)",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "0 var(--space-5)",
+  minHeight: "var(--space-10)",
+  fontSize: "var(--body-size)",
+  fontWeight: "var(--h3-weight)",
+  cursor: "pointer",
+  transition: "background var(--dur-med) var(--ease), transform var(--dur-fast) var(--ease)",
+};
+
+const confirmedPillStyles: CSSProperties = {
+  alignSelf: "flex-start",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  padding: "0 var(--space-4)",
+  minHeight: "var(--space-9)",
+  borderRadius: "999px",
+  background: "var(--color-accent-quiet)",
+  color: "var(--color-accent)",
+  fontSize: "var(--caption-size)",
+  fontWeight: "var(--caption-weight)",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
 const emptyStateStyles: CSSProperties = {
   borderRadius: "var(--radius-md)",
   border: `${BORDER_WIDTH} dashed var(--color-border)`,
@@ -422,13 +458,51 @@ export default function GiftList() {
         ) : (
           <section style={gridStyles} aria-label="Gift list">
             {gifts.map((gift) => (
-              <GiftCard key={gift.id} gift={gift} onConfirm={handleConfirm} />
+              <div key={gift.id} style={cardWrapperStyles}>
+                <GiftCard
+                  title={gift.name}
+                  image={gift.image}
+                  priceLabel={formatGiftPrice(gift.price)}
+                  meta={gift.confirmed ? "Confirmed" : null}
+                  viewHref={gift.url}
+                />
+                {gift.confirmed ? (
+                  <span style={confirmedPillStyles} aria-label="Gift already confirmed">
+                    Confirmed
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    style={confirmButtonStyles}
+                    className="focus-ring"
+                    onClick={() => void handleConfirm(gift.id)}
+                  >
+                    Mark as confirmed
+                  </button>
+                )}
+              </div>
             ))}
           </section>
         )}
       </div>
     </main>
   );
+}
+
+function formatGiftPrice(price: number | null): string | null {
+  if (typeof price !== "number" || Number.isNaN(price)) {
+    return null;
+  }
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    }).format(price);
+  } catch {
+    return price.toFixed(2);
+  }
 }
 
 async function fetchJson<T>(

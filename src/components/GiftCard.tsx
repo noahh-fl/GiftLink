@@ -1,7 +1,7 @@
 import PointsBadge from "./PointsBadge";
 import "./GiftCard.css";
 
-interface GiftCardProps {
+export interface GiftCardProps {
   title: string;
   image?: string | null;
   priceLabel?: string | null;
@@ -12,7 +12,7 @@ interface GiftCardProps {
   onView?: () => void;
 }
 
-export default function GiftCard({
+export function GiftCard({
   title,
   image,
   priceLabel,
@@ -66,3 +66,5 @@ export default function GiftCard({
     </article>
   );
 }
+
+export default GiftCard;

@@ -36,6 +36,16 @@ before(async () => {
     },
   );
 
+  execFileSync(
+    "npx",
+    ["prisma", "generate"],
+    {
+      cwd: backendRoot,
+      env: { ...process.env, DATABASE_URL: `file:${testDbPath}` },
+      stdio: "inherit",
+    },
+  );
+
   const serverModule = await import("../server.js");
   app = serverModule.app;
   await app.ready();

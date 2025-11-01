@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import PointsBadge from "./PointsBadge";
 import "./RewardModal.css";
 
