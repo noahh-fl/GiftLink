@@ -9,11 +9,12 @@ interface ShopTabsProps {
   value: string;
   tabs: ShopTab[];
   onChange: (value: string) => void;
+  ariaLabel?: string;
 }
 
-export default function ShopTabs({ value, tabs, onChange }: ShopTabsProps) {
+export default function ShopTabs({ value, tabs, onChange, ariaLabel = "Gift shop view" }: ShopTabsProps) {
   return (
-    <div className="shop-tabs" role="radiogroup" aria-label="Gift shop view">
+    <div className="shop-tabs" role="radiogroup" aria-label={ariaLabel}>
       {tabs.map((tab) => {
         const active = tab.value === value;
         return (

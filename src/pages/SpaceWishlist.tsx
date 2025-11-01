@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
 import Button from "../ui/components/Button";
+import PageHeader from "../ui/components/PageHeader";
 import PointsBadge from "../components/PointsBadge";
 import { GiftCard } from "../components/GiftCard";
 import { useToast } from "../contexts/ToastContext";
@@ -12,7 +13,7 @@ import {
   normalizePriceInput,
 } from "../utils/price";
 import type { SpaceOutletContext } from "./SpaceLayout";
-import { useOutletContext } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import "./SpaceWishlist.css";
 
 interface WishlistGift {
@@ -173,6 +174,8 @@ export { extractWishlistItems };
 
 export default function SpaceWishlist() {
   const { space } = useOutletContext<SpaceOutletContext>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [items, setItems] = useState<WishlistItem[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -281,6 +284,18 @@ export default function SpaceWishlist() {
   useEffect(() => {
     void loadWishlist();
   }, [loadWishlist]);
+
+  useEffect(() => {
+    const state = location.state as { openNewItem?: boolean } | null;
+    if (state?.openNewItem) {
+      setFormOpen(true);
+      setFlowStep("link");
+      setIsManualEntry(false);
+      setAllowEditDetails(false);
+      setFormState(() => ({ ...INITIAL_FORM }));
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
 
   function resetFormState() {
     setFormState(() => ({ ...INITIAL_FORM }));
@@ -479,20 +494,17 @@ export default function SpaceWishlist() {
 
   return (
     <div className="space-wishlist" aria-labelledby="space-wishlist-title">
-      <header className="space-wishlist__header">
-        <div>
-          <p className="space-wishlist__eyebrow">Wishlist</p>
-          <h1 id="space-wishlist-title" className="space-wishlist__title">
-            Shared ideas for {space.name}
-          </h1>
-          <p className="space-wishlist__subtitle">
-            Paste an Amazon link, preview the details, then save it for both of you to see.
-          </p>
-        </div>
-        <Button type="button" onClick={handleToggleForm}>
-          {formOpen ? "Close form" : "Add item"}
-        </Button>
-      </header>
+      <PageHeader
+        eyebrow="Wishlist"
+        title={`Shared ideas for ${space.name}`}
+        titleId="space-wishlist-title"
+        description="Paste a link, let GiftLink fetch the details, then fine-tune it together."
+        actions={
+          <Button type="button" onClick={handleToggleForm}>
+            {formOpen ? "Close form" : "Add item"}
+          </Button>
+        }
+      />
 
       {formOpen ? (
         <form className="space-wishlist__form" onSubmit={handleSubmit} noValidate>
