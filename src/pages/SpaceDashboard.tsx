@@ -3,7 +3,6 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import InboxList, { type InboxItem } from "../components/InboxList";
 import Button from "../ui/components/Button";
 import QuickActionButton from "../ui/components/QuickActionButton";
-import StatCard from "../ui/components/StatCard";
 import SurfaceCard from "../ui/components/SurfaceCard";
 import { apiFetch } from "../utils/api";
 import { normalizeActivityItems } from "../utils/activity";
@@ -68,18 +67,6 @@ function ClipboardIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
         d="M9 4h6a2 2 0 0 1 2 2v2h-1.5a1.5 1.5 0 0 1-3 0H9V6a2 2 0 0 1 2-2Zm-3 4h12v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8Z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        d="M20 11a8 8 0 0 0-13.89-5.09L4 8M4 13a8 8 0 0 0 13.89 5.09L20 16"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -185,31 +172,31 @@ export default function SpaceDashboard() {
     () => [
       {
         id: "add-wish",
-        label: "Add to wishlist",
+        label: "Add to Wishlist",
         icon: <PlusIcon />,
         onAction: () => navigate("wishlist", { state: { openNewItem: true } }),
       },
       {
         id: "redeem",
-        label: "Redeem reward",
+        label: "Redeem Reward",
         icon: <GiftIcon />,
         onAction: () => navigate("shop", { state: { view: "partner" } }),
       },
       {
         id: "view-wishlist",
-        label: "View wishlist",
+        label: "View Wishlist",
         icon: <ListIcon />,
         onAction: () => navigate("wishlist"),
       },
       {
         id: "invite",
-        label: copyState === "copied" ? "Copied" : "Invite partner",
+        label: "Invite Partner",
         icon: <ShareIcon />,
         onAction: handleCopy,
         disabled: !space.joinCode,
       },
     ],
-    [copyState, handleCopy, navigate, space.joinCode],
+    [handleCopy, navigate, space.joinCode],
   );
 
   const copyFeedback =
@@ -223,10 +210,7 @@ export default function SpaceDashboard() {
     ? space.description
     : "Share your space, collect wishes, and coordinate rewards together.";
 
-  const balanceLabel = balance !== null ? `${balance} pts` : "—";
-  const modeLabel = space.mode
-    ? `${space.mode.charAt(0).toUpperCase()}${space.mode.slice(1).toLowerCase()}`
-    : "Price";
+  const balanceLabel = balance !== null ? balance.toLocaleString() : "—";
 
   return (
     <div className="space-dashboard" aria-labelledby="space-dashboard-title">
@@ -238,81 +222,46 @@ export default function SpaceDashboard() {
         {description ? <p className="space-dashboard__description">{description}</p> : null}
       </section>
 
-      <section className="space-dashboard__stats space-dashboard__section" aria-label="Points overview">
-        <StatCard
-          label="Join code"
-          actions={
-            <button
-              type="button"
-              className="space-dashboard__icon-button"
-              onClick={handleCopy}
-              disabled={!space.joinCode}
-              aria-label="Copy join code"
-            >
-              <ClipboardIcon />
-            </button>
-          }
-          aria-live="polite"
-        >
-          <p className="space-dashboard__stat-value" aria-label="Join code value">
-            {space.joinCode || "—"}
-          </p>
-          <p className="space-dashboard__stat-hint">Share this code to invite your partner.</p>
-          {copyFeedback ? (
-            <p className="space-dashboard__stat-hint space-dashboard__stat-hint--status" role="status">
-              {copyFeedback}
+      <section className="space-dashboard__join space-dashboard__section" aria-label="Join code">
+        <div className="space-dashboard__join-pill">
+          <div className="space-dashboard__join-content">
+            <p className="space-dashboard__join-label">Join Code</p>
+            <p className="space-dashboard__join-value" aria-live="polite">
+              {space.joinCode || "—"}
             </p>
-          ) : null}
-        </StatCard>
-
-        <StatCard
-          label="Points"
-          actions={
-            <button
-              type="button"
-              className="space-dashboard__icon-button"
-              onClick={() => void loadBalance()}
-              disabled={balanceState === "loading"}
-              aria-label="Refresh points balance"
-            >
-              <RefreshIcon />
-            </button>
-          }
-          aria-live="polite"
-        >
-          {balanceState === "loading" ? (
-            <div className="space-dashboard__stat-skeleton" aria-hidden="true" />
-          ) : (
-            <p className="space-dashboard__stat-value">{balanceLabel}</p>
-          )}
-          {balanceError ? (
-            <p className="space-dashboard__stat-hint space-dashboard__stat-hint--error">{balanceError}</p>
-          ) : (
-            <p className="space-dashboard__stat-hint">Points available across your space.</p>
-          )}
-        </StatCard>
-
-        <StatCard label="Mode">
-          <p className="space-dashboard__stat-value">{modeLabel}</p>
-          <p className="space-dashboard__stat-hint">Controls how points are calculated.</p>
-        </StatCard>
+          </div>
+          <button
+            type="button"
+            className="space-dashboard__copy-button"
+            onClick={handleCopy}
+            disabled={!space.joinCode}
+            aria-label="Copy join code"
+          >
+            <ClipboardIcon />
+          </button>
+        </div>
+        {copyFeedback ? (
+          <p className="space-dashboard__join-status" role="status">
+            {copyFeedback}
+          </p>
+        ) : null}
       </section>
 
-      <section className="space-dashboard__quick-actions space-dashboard__section" aria-label="Quick actions">
-        <div className="space-dashboard__section-header">
-          <h2 className="space-dashboard__section-title">Quick actions</h2>
-        </div>
-        <div className="space-dashboard__quick-actions-grid">
-          {quickActions.map((action) => (
-            <QuickActionButton
-              key={action.id}
-              icon={action.icon}
-              label={action.label}
-              onClick={action.onAction}
-              disabled={action.disabled}
-            />
-          ))}
-        </div>
+      <hr className="space-dashboard__divider" aria-hidden="true" />
+
+      <section className="space-dashboard__points space-dashboard__section" aria-live="polite">
+        {balanceState === "loading" ? (
+          <span className="space-dashboard__points-loading" aria-live="polite">
+            Loading points
+          </span>
+        ) : (
+          <p className="space-dashboard__points-text">
+            You have <span className="space-dashboard__points-value">{balanceLabel}</span> points
+          </p>
+        )}
+        {balanceState === "error" ? (
+          <span className="space-dashboard__sr-only" role="status">{balanceError}</span>
+        ) : null}
       </section>
 
       <section
@@ -324,9 +273,7 @@ export default function SpaceDashboard() {
           <h2 id="space-dashboard-activity-title" className="space-dashboard__section-title">
             Recent activity
           </h2>
-          <Button type="button" variant="ghost" onClick={() => navigate("inbox")}>
-            View inbox
-          </Button>
+          <Button type="button" variant="ghost" onClick={() => navigate("inbox")}>View inbox</Button>
         </div>
         <SurfaceCard className="space-dashboard__activity-card">
           {activityState === "loading" ? (
@@ -346,6 +293,21 @@ export default function SpaceDashboard() {
           ) : null}
           {activityState === "ready" ? <InboxList items={activity} currentUserId={identity.id} /> : null}
         </SurfaceCard>
+      </section>
+
+      <section className="space-dashboard__quick-actions space-dashboard__section" aria-label="Quick actions">
+        <h2 className="space-dashboard__section-title">Quick actions</h2>
+        <div className="space-dashboard__quick-actions-grid">
+          {quickActions.map((action) => (
+            <QuickActionButton
+              key={action.id}
+              icon={action.icon}
+              label={action.label}
+              onClick={action.onAction}
+              disabled={action.disabled}
+            />
+          ))}
+        </div>
       </section>
 
       <footer className="space-dashboard__footer">
