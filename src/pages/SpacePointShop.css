@@ -75,6 +75,20 @@
   box-shadow: var(--elev-1);
 }
 
+.space-shop__form--inactive {
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.space-shop__partner-note {
+  margin: 0;
+  font-size: var(--body-size);
+  line-height: 1.5;
+  max-width: 520px;
+}
+
 .space-shop__status {
   margin: 0;
   color: var(--color-text-muted);
@@ -116,22 +130,22 @@
 
 .space-shop__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
 }
 
 .space-shop__item {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   box-shadow: var(--elev-1);
 }
 
-.space-shop__item header {
+.space-shop__item-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -144,15 +158,20 @@
   font-weight: var(--h3-weight);
 }
 
-.space-shop__points {
-  margin: 0;
-  color: var(--color-text-muted);
+.space-shop__points-badge {
+  align-self: flex-start;
 }
 
 .space-shop__description {
   margin: 0;
   color: var(--color-text-muted);
   line-height: 1.5;
+}
+
+.space-shop__item-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .space-shop__timestamp {

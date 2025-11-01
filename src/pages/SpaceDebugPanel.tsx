@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Button from "../ui/components/Button";
+import Input from "../ui/components/Input";
 import { apiFetch } from "../utils/api";
 import "./SpaceDebugPanel.css";
 
@@ -17,6 +18,19 @@ interface SpaceDebugPanelProps {
   onRefresh: () => Promise<void>;
 }
 
+interface ParsedGiftSample {
+  title: string | null;
+  price: number | null;
+  imageUrl: string | null;
+}
+
+interface RewardProbeItem {
+  id: number;
+  title: string;
+  points: number;
+  userId?: string;
+}
+
 export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebugPanelProps) {
   const [spaces, setSpaces] = useState<DebugSpaceSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -24,6 +38,18 @@ export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebug
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [parseUrl, setParseUrl] = useState("");
+  const [parseResult, setParseResult] = useState<ParsedGiftSample | null>(null);
+  const [parseStatus, setParseStatus] = useState("");
+  const [parseError, setParseError] = useState("");
+  const [parseLoading, setParseLoading] = useState(false);
+  const [probeSpace, setProbeSpace] = useState("");
+  const [probeRewards, setProbeRewards] = useState<RewardProbeItem[]>([]);
+  const [probeError, setProbeError] = useState("");
+  const [probeStatus, setProbeStatus] = useState("");
+  const [probeLoading, setProbeLoading] = useState(false);
+
+  const spaceOptions = useMemo(() => spaces.map((item) => ({ id: item.id, name: item.name })), [spaces]);
 
   if (!import.meta.env.DEV) {
     return null;
@@ -115,6 +141,91 @@ export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebug
     }
   }
 
+  async function runParseTester() {
+    const trimmed = parseUrl.trim();
+    if (!trimmed) {
+      setParseError("Enter a URL to parse.");
+      setParseStatus("");
+      setParseResult(null);
+      return;
+    }
+
+    setParseLoading(true);
+    setParseError("");
+    setParseStatus("Parsing…");
+    setParseResult(null);
+
+    try {
+      const response = await apiFetch("/gifts/parse", {
+        method: "POST",
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body || typeof body !== "object") {
+        const message =
+          body && typeof (body as { message?: string }).message === "string"
+            ? (body as { message: string }).message
+            : "Unable to parse link.";
+        throw new Error(message);
+      }
+
+      setParseResult(body as ParsedGiftSample);
+      setParseStatus("Parse complete.");
+    } catch (parseErr) {
+      const message =
+        parseErr instanceof Error && parseErr.message ? parseErr.message : "Unable to parse link.";
+      setParseError(message);
+      setParseStatus("");
+    } finally {
+      setParseLoading(false);
+    }
+  }
+
+  async function runRewardsProbe() {
+    const numeric = Number.parseInt(probeSpace, 10);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      setProbeError("Choose a valid space.");
+      setProbeStatus("");
+      setProbeRewards([]);
+      return;
+    }
+
+    setProbeLoading(true);
+    setProbeError("");
+    setProbeStatus("Loading rewards…");
+    setProbeRewards([]);
+
+    try {
+      const response = await apiFetch(`/spaces/${numeric}/rewards`);
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body || typeof body !== "object") {
+        throw new Error("Unable to load rewards for probe.");
+      }
+
+      const payload = (body as { rewards?: RewardProbeItem[] }).rewards ?? [];
+      setProbeRewards(
+        payload.map((reward) => ({
+          id: reward.id,
+          title: reward.title,
+          points: reward.points,
+          userId: reward.userId ?? (reward as { ownerKey?: string }).ownerKey,
+        })),
+      );
+      setProbeStatus(`Loaded ${payload.length} reward${payload.length === 1 ? "" : "s"}.`);
+    } catch (probeErr) {
+      const message =
+        probeErr instanceof Error && probeErr.message
+          ? probeErr.message
+          : "Unable to load rewards for probe.";
+      setProbeError(message);
+      setProbeStatus("");
+    } finally {
+      setProbeLoading(false);
+    }
+  }
+
   return (
     <section className="debug-panel" aria-label="Development helpers">
       <header className="debug-panel__header">
@@ -154,7 +265,11 @@ export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebug
                 <button
                   type="button"
                   onClick={() => void viewSpaceDetail(item.id)}
-                  className={selectedId === item.id ? "debug-panel__list-button debug-panel__list-button--active" : "debug-panel__list-button"}
+                  className={
+                    selectedId === item.id
+                      ? "debug-panel__list-button debug-panel__list-button--active"
+                      : "debug-panel__list-button"
+                  }
                 >
                   <span>{item.name}</span>
                   <span>#{item.id}</span>
@@ -200,10 +315,74 @@ export default function SpaceDebugPanel({ activeSpaceId, onRefresh }: SpaceDebug
         </div>
       ) : null}
 
+      <div className="debug-panel__probes">
+        <div className="debug-panel__probe">
+          <h3>Parse tester</h3>
+          <div className="debug-panel__probe-controls">
+            <Input
+              value={parseUrl}
+              onChange={(event) => setParseUrl(event.target.value)}
+              placeholder="https://www.amazon.com/..."
+              disabled={parseLoading}
+            />
+            <Button type="button" variant="secondary" onClick={() => void runParseTester()} disabled={parseLoading}>
+              {parseLoading ? "Parsing…" : "Run"}
+            </Button>
+          </div>
+          {parseStatus ? <p className="debug-panel__probe-status">{parseStatus}</p> : null}
+          {parseError ? (
+            <p className="debug-panel__probe-status debug-panel__probe-status--error" role="alert">
+              {parseError}
+            </p>
+          ) : null}
+          {parseResult ? (
+            <pre className="debug-panel__json" aria-label="Parse result">{JSON.stringify(parseResult, null, 2)}</pre>
+          ) : null}
+        </div>
+
+        <div className="debug-panel__probe">
+          <h3>Rewards probe</h3>
+          <div className="debug-panel__probe-controls">
+            <select
+              className="debug-panel__select"
+              value={probeSpace}
+              onChange={(event) => setProbeSpace(event.target.value)}
+              disabled={probeLoading}
+            >
+              <option value="">Select a space…</option>
+              {spaceOptions.map((spaceOption) => (
+                <option key={spaceOption.id} value={spaceOption.id}>
+                  #{spaceOption.id} · {spaceOption.name}
+                </option>
+              ))}
+            </select>
+            <Button type="button" variant="secondary" onClick={() => void runRewardsProbe()} disabled={probeLoading}>
+              {probeLoading ? "Loading…" : "Fetch"}
+            </Button>
+          </div>
+          {probeStatus ? <p className="debug-panel__probe-status">{probeStatus}</p> : null}
+          {probeError ? (
+            <p className="debug-panel__probe-status debug-panel__probe-status--error" role="alert">
+              {probeError}
+            </p>
+          ) : null}
+          {probeRewards.length > 0 ? (
+            <ul className="debug-panel__probe-list">
+              {probeRewards.map((reward) => (
+                <li key={reward.id}>
+                  <span>{reward.title}</span>
+                  <span>
+                    {reward.points} pts · {reward.userId ?? "unknown"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+
       <footer className="debug-panel__footer">
-        <p>
-          Active space: <span>#{activeSpaceId}</span>
-        </p>
+        Active space: <span>{activeSpaceId}</span>
       </footer>
     </section>
   );

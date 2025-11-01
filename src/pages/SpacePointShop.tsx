@@ -4,6 +4,8 @@ import { useOutletContext } from "react-router-dom";
 import Button from "../ui/components/Button";
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
+import PointsBadge from "../components/PointsBadge";
+import { useToast } from "../contexts/ToastContext";
 import { apiFetch } from "../utils/api";
 import { getUserIdentity } from "../utils/user";
 import type { SpaceOutletContext } from "./SpaceLayout";
@@ -14,7 +16,8 @@ interface Reward {
   title: string;
   points: number;
   description?: string | null;
-  ownerKey: string;
+  ownerKey?: string;
+  userId: string;
   updatedAt?: string;
 }
 
@@ -24,6 +27,7 @@ type ViewMode = "mine" | "others";
 export default function SpacePointShop() {
   const { space } = useOutletContext<SpaceOutletContext>();
   const identity = getUserIdentity();
+  const { showToast } = useToast();
 
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -35,6 +39,7 @@ export default function SpacePointShop() {
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const loadRewards = useCallback(async () => {
     setLoadState((previous) => (previous === "ready" ? previous : "loading"));
@@ -48,8 +53,20 @@ export default function SpacePointShop() {
         throw new Error("Unable to load rewards.");
       }
 
-      const payload = (body as { rewards?: Reward[] }).rewards ?? [];
-      setRewards(payload);
+      const payload = (body as { rewards?: Partial<Reward>[] }).rewards ?? [];
+      const normalized = payload.map((reward) => {
+        const owner = reward.userId ?? reward.ownerKey ?? "unknown";
+        return {
+          id: reward.id ?? 0,
+          title: reward.title ?? "Untitled reward",
+          points: reward.points ?? 0,
+          description: reward.description ?? null,
+          ownerKey: reward.ownerKey ?? owner,
+          userId: owner,
+          updatedAt: reward.updatedAt,
+        } satisfies Reward;
+      });
+      setRewards(normalized);
       setLoadState("ready");
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : "Unable to load rewards.";
@@ -64,9 +81,9 @@ export default function SpacePointShop() {
 
   const filteredRewards = useMemo(() => {
     if (view === "mine") {
-      return rewards.filter((reward) => reward.ownerKey === identity.id);
+      return rewards.filter((reward) => reward.userId === identity.id);
     }
-    return rewards.filter((reward) => reward.ownerKey !== identity.id);
+    return rewards.filter((reward) => reward.userId !== identity.id);
   }, [identity.id, rewards, view]);
 
   function resetForm() {
@@ -83,7 +100,14 @@ export default function SpacePointShop() {
     setPoints(String(reward.points));
     setDescription(reward.description ?? "");
     setFormError("");
+    setView("mine");
   }
+
+  useEffect(() => {
+    if (view === "others") {
+      resetForm();
+    }
+  }, [view]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -137,13 +161,14 @@ export default function SpacePointShop() {
 
       const reward = (body as { reward: Reward }).reward ?? (body as Reward);
       if (editingId !== null) {
-        setRewards((previous) => previous.map((item) => (item.id === editingId ? reward : item)));
+        setRewards((previous) => previous.map((item) => (item.id === editingId ? { ...reward, userId: identity.id } : item)));
       } else {
-        setRewards((previous) => [reward, ...previous]);
+        setRewards((previous) => [{ ...reward, userId: identity.id }, ...previous]);
       }
 
       resetForm();
       setView("mine");
+      showToast({ intent: "success", description: editingId !== null ? "Reward updated." : "Reward added." });
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -152,8 +177,43 @@ export default function SpacePointShop() {
             ? "Unable to update reward."
             : "Unable to create reward.";
       setFormError(message);
+      showToast({ intent: "error", description: message });
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(rewardId: number) {
+    if (!window.confirm("Delete this reward?")) {
+      return;
+    }
+
+    setDeletingId(rewardId);
+
+    try {
+      const response = await apiFetch(`/spaces/${space.id}/rewards/${rewardId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message =
+          body && typeof body === "object" && typeof (body as { message?: string }).message === "string"
+            ? (body as { message: string }).message
+            : "Unable to delete reward.";
+        throw new Error(message);
+      }
+
+      setRewards((previous) => previous.filter((item) => item.id !== rewardId));
+      if (editingId === rewardId) {
+        resetForm();
+      }
+      showToast({ intent: "success", description: "Reward deleted." });
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Unable to delete reward.";
+      showToast({ intent: "error", description: message });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -189,55 +249,63 @@ export default function SpacePointShop() {
         </div>
       </header>
 
-      <form className="space-shop__form" onSubmit={handleSubmit} noValidate>
-        <FormField htmlFor="reward-title" label="Reward title" required>
-          <Input
-            id="reward-title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Example: Breakfast in bed"
-            disabled={submitting}
-          />
-        </FormField>
+      {view === "mine" ? (
+        <form className="space-shop__form" onSubmit={handleSubmit} noValidate>
+          <FormField htmlFor="reward-title" label="Reward title" required>
+            <Input
+              id="reward-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Example: Breakfast in bed"
+              disabled={submitting}
+            />
+          </FormField>
 
-        <FormField htmlFor="reward-points" label="Points" hint="Whole numbers only" required>
-          <Input
-            id="reward-points"
-            value={points}
-            onChange={(event) => setPoints(event.target.value)}
-            placeholder="40"
-            disabled={submitting}
-            inputMode="numeric"
-          />
-        </FormField>
+          <FormField htmlFor="reward-points" label="Points" hint="Whole numbers only" required>
+            <Input
+              id="reward-points"
+              value={points}
+              onChange={(event) => setPoints(event.target.value)}
+              placeholder="40"
+              disabled={submitting}
+              inputMode="numeric"
+            />
+          </FormField>
 
-        <FormField htmlFor="reward-description" label="Description" hint="Optional details for the redeemer.">
-          <Input
-            id="reward-description"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Tell us what’s included or how to redeem it"
-            disabled={submitting}
-          />
-        </FormField>
+          <FormField htmlFor="reward-description" label="Description" hint="Optional details for the redeemer.">
+            <Input
+              id="reward-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Tell us what’s included or how to redeem it"
+              disabled={submitting}
+            />
+          </FormField>
 
-        {formError ? (
-          <p className="space-shop__status space-shop__status--error" role="alert">
-            {formError}
-          </p>
-        ) : null}
-
-        <div className="space-shop__form-actions">
-          {editingId !== null ? (
-            <Button type="button" variant="secondary" onClick={() => resetForm()} disabled={submitting}>
-              Cancel edit
-            </Button>
+          {formError ? (
+            <p className="space-shop__status space-shop__status--error" role="alert">
+              {formError}
+            </p>
           ) : null}
-          <Button type="submit" disabled={submitting}>
-            {submitting ? "Saving…" : editingId !== null ? "Update reward" : "Add reward"}
-          </Button>
+
+          <div className="space-shop__form-actions">
+            {editingId !== null ? (
+              <Button type="button" variant="secondary" onClick={() => resetForm()} disabled={submitting}>
+                Cancel edit
+              </Button>
+            ) : null}
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Saving…" : editingId !== null ? "Update reward" : "Add reward"}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="space-shop__form space-shop__form--inactive" aria-live="polite">
+          <p className="space-shop__partner-note">
+            Switch to “My rewards” to add or edit your own treats. Partner rewards are read-only here.
+          </p>
         </div>
-      </form>
+      )}
 
       <section className="space-shop__list" aria-live="polite">
         {loadState === "loading" ? <p className="space-shop__loading">Loading rewards…</p> : null}
@@ -260,18 +328,35 @@ export default function SpacePointShop() {
           <div className="space-shop__grid">
             {filteredRewards.map((reward) => (
               <article key={reward.id} className="space-shop__item">
-                <header>
-                  <div>
-                    <h2>{reward.title}</h2>
-                    <p className="space-shop__points">{reward.points} pts</p>
-                  </div>
-                  {reward.ownerKey === identity.id ? (
-                    <Button type="button" variant="secondary" onClick={() => startEdit(reward)}>
-                      Edit
-                    </Button>
-                  ) : null}
+                <header className="space-shop__item-header">
+                  <h2>{reward.title}</h2>
+                  <PointsBadge
+                    className="space-shop__points-badge"
+                    label={`${reward.points} pts`}
+                    ariaLabel={`${reward.points} points`}
+                  />
                 </header>
                 {reward.description ? <p className="space-shop__description">{reward.description}</p> : null}
+                {reward.userId === identity.id && view === "mine" ? (
+                  <div className="space-shop__item-actions">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => startEdit(reward)}
+                      disabled={submitting || deletingId === reward.id}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => void handleDelete(reward.id)}
+                      disabled={deletingId === reward.id || submitting}
+                    >
+                      {deletingId === reward.id ? "Deleting…" : "Delete"}
+                    </Button>
+                  </div>
+                ) : null}
                 <footer>
                   <p className="space-shop__timestamp">
                     Updated {reward.updatedAt ? new Date(reward.updatedAt).toLocaleDateString() : "recently"}

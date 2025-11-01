@@ -1,0 +1,30 @@
+.points-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--color-gold-soft);
+  border: 1px solid rgba(197, 139, 15, 0.32);
+  color: var(--color-gold-600);
+  font-weight: var(--h3-weight);
+  font-size: 15px;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+}
+
+.points-badge__icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+}
+
+.points-badge__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.points-badge__text {
+  white-space: nowrap;
+}

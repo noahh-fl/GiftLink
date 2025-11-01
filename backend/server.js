@@ -85,6 +85,101 @@ app.post("/metadata/peekalink", async (req, res) => {
   }
 });
 
+app.post("/gifts/parse", async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const urlResult = normalizeUrl(req.body.url, { allowNull: false, fieldName: "URL" });
+  if (urlResult.error || !urlResult.value) {
+    return sendJsonError(
+      res,
+      400,
+      urlResult.error ?? "URL is required.",
+      ERROR_CODES.BAD_REQUEST,
+    );
+  }
+
+  if (!isAmazonProductUrl(urlResult.value)) {
+    return sendJsonError(
+      res,
+      422,
+      "Auto-fill currently supports Amazon product links.",
+      ERROR_CODES.UNPROCESSABLE,
+    );
+  }
+
+  try {
+    const peekalinkPayload = await fetchAmazonPeekalink(urlResult.value);
+    const amazonProduct = peekalinkPayload?.amazonProduct;
+    const fallbackImage = pickPeekalinkImage(peekalinkPayload?.image);
+
+    const rawTitle = selectAmazonTitle(amazonProduct, peekalinkPayload) ?? deriveAmazonTitleFromUrl(urlResult.value);
+    const cleanTitle = rawTitle ? cleanAmazonTitle(rawTitle) : null;
+
+    const { price, currency } = await resolveAmazonPrice(amazonProduct, peekalinkPayload, req.log);
+    const rawImageUrl = pickAmazonImage(amazonProduct, fallbackImage);
+    const imageUrl = normalizeUrl(rawImageUrl, {
+      allowNull: true,
+      fieldName: "Image URL",
+      strict: false,
+    }).value;
+    const asin = selectAmazonAsin(urlResult.value, amazonProduct);
+    const features = selectAmazonFeatures(amazonProduct);
+    const rating = typeof amazonProduct?.rating === "number" ? amazonProduct.rating : null;
+    const reviewCount =
+      typeof amazonProduct?.reviewCount === "number" ? amazonProduct.reviewCount : null;
+
+    if (!cleanTitle && price === null && !imageUrl) {
+      return sendJsonError(
+        res,
+        422,
+        "We couldn’t read that link. Try another or enter details manually.",
+        ERROR_CODES.UNPROCESSABLE,
+      );
+    }
+
+    const payload = {
+      title: cleanTitle,
+      rawTitle: rawTitle ?? null,
+      price,
+      currency: currency ?? null,
+      imageUrl,
+      asin: asin ?? null,
+    };
+
+    if (features.length > 0) {
+      payload.features = features;
+    }
+    if (rating !== null) {
+      payload.rating = rating;
+    }
+    if (reviewCount !== null) {
+      payload.reviewCount = reviewCount;
+    }
+
+    return res.status(200).send(payload);
+  } catch (error) {
+    if (error instanceof PeekalinkUnavailableError) {
+      req.log.error({ err: error, url: urlResult.value }, "Peekalink request failed");
+      return sendJsonError(
+        res,
+        502,
+        "Unable to fetch details for the provided link.",
+        ERROR_CODES.INTERNAL,
+      );
+    }
+
+    req.log.error({ err: error, url: urlResult.value }, "Failed to parse gift URL");
+    return sendJsonError(
+      res,
+      502,
+      "Unable to fetch details for the provided link.",
+      ERROR_CODES.INTERNAL,
+    );
+  }
+});
+
 const SPACE_MODES = new Set(["price", "sentiment"]);
 
 const INVITE_CODE_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
@@ -112,7 +207,236 @@ const ERROR_CODES = {
   RATE_LIMITED: "RATE_LIMITED",
   INVALID_TRANSITION: "INVALID_TRANSITION",
   INTERNAL: "INTERNAL_SERVER_ERROR",
+  UNPROCESSABLE: "UNPROCESSABLE_ENTITY",
 };
+
+class PeekalinkUnavailableError extends Error {}
+
+async function fetchAmazonPeekalink(url) {
+  const apiKey = process.env.PEEKALINK_API_KEY;
+
+  if (!apiKey) {
+    throw new PeekalinkUnavailableError("Peekalink API key is not configured.");
+  }
+
+  const response = await fetch("https://api.peekalink.io/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ link: url }),
+  });
+
+  if (!response.ok) {
+    throw new PeekalinkUnavailableError(`Peekalink responded with status ${response.status}.`);
+  }
+
+  const payload = await response.json();
+  if (!payload || typeof payload !== "object") {
+    throw new PeekalinkUnavailableError("Peekalink returned an unexpected payload.");
+  }
+
+  return payload;
+}
+
+function selectAmazonTitle(amazonProduct, payload) {
+  if (amazonProduct?.title && typeof amazonProduct.title === "string") {
+    return amazonProduct.title;
+  }
+
+  if (payload?.title && typeof payload.title === "string") {
+    return payload.title;
+  }
+
+  return null;
+}
+
+function cleanAmazonTitle(title) {
+  if (typeof title !== "string") {
+    return null;
+  }
+
+  const withoutPrefix = title.replace(/^amazon\.com\s*:\s*/i, "");
+  const collapsed = withoutPrefix.replace(/\s+/g, " ").trim();
+  const cleaned = collapsed.replace(/^[\s:;,.\-|]+/, "").replace(/[\s:;,.\-|]+$/, "");
+  return cleaned || null;
+}
+
+async function resolveAmazonPrice(amazonProduct, payload, logger) {
+  const result = { price: null, currency: null };
+
+  const directPrice = normalizePriceNumber(amazonProduct?.price ?? payload?.price?.value);
+  if (directPrice !== null) {
+    result.price = directPrice;
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  }
+
+  const rawTextUrl = typeof payload?.page?.rawTextUrl === "string" ? payload.page.rawTextUrl : null;
+  if (!rawTextUrl) {
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  }
+
+  try {
+    const rawResponse = await fetch(rawTextUrl);
+    if (!rawResponse.ok) {
+      logger?.warn?.({ statusCode: rawResponse.status }, "Failed to fetch Peekalink raw text");
+      result.currency = selectCurrency(amazonProduct, payload);
+      return result;
+    }
+
+    const rawText = await rawResponse.text();
+    const parsed = extractPriceFromText(rawText);
+    if (parsed !== null) {
+      result.price = parsed;
+    }
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  } catch (error) {
+    logger?.warn?.({ err: error }, "Unable to parse price from Peekalink raw text");
+    result.currency = selectCurrency(amazonProduct, payload);
+    return result;
+  }
+}
+
+function normalizePriceNumber(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value < 0) {
+      return null;
+    }
+    return Number.parseFloat(value.toFixed(2));
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const normalized = trimmed.replace(/[^0-9.,-]/g, "").replace(/,/g, "");
+    if (!normalized) {
+      return null;
+    }
+    const parsed = Number.parseFloat(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+    return Number.parseFloat(parsed.toFixed(2));
+  }
+
+  return null;
+}
+
+function selectCurrency(amazonProduct, payload) {
+  if (amazonProduct?.currency && typeof amazonProduct.currency === "string") {
+    return amazonProduct.currency.toUpperCase();
+  }
+  if (payload?.price?.currency && typeof payload.price.currency === "string") {
+    return payload.price.currency.toUpperCase();
+  }
+  return null;
+}
+
+function pickAmazonImage(amazonProduct, fallbackImage) {
+  const media = Array.isArray(amazonProduct?.media) ? amazonProduct.media : [];
+  for (const asset of media) {
+    if (!asset || typeof asset !== "object") {
+      continue;
+    }
+    const original = typeof asset?.original?.url === "string" ? asset.original.url.trim() : "";
+    if (original) {
+      return original;
+    }
+    const large = typeof asset?.large?.url === "string" ? asset.large.url.trim() : "";
+    if (large) {
+      return large;
+    }
+    const medium = typeof asset?.medium?.url === "string" ? asset.medium.url.trim() : "";
+    if (medium) {
+      return medium;
+    }
+    const thumbnail = typeof asset?.thumbnail?.url === "string" ? asset.thumbnail.url.trim() : "";
+    if (thumbnail) {
+      return thumbnail;
+    }
+  }
+
+  return fallbackImage ?? null;
+}
+
+function pickPeekalinkImage(image) {
+  if (!image) {
+    return null;
+  }
+
+  if (typeof image?.large?.url === "string" && image.large.url.trim()) {
+    return image.large.url.trim();
+  }
+  if (typeof image?.medium?.url === "string" && image.medium.url.trim()) {
+    return image.medium.url.trim();
+  }
+  if (typeof image?.thumbnail?.url === "string" && image.thumbnail.url.trim()) {
+    return image.thumbnail.url.trim();
+  }
+  if (typeof image?.url === "string" && image.url.trim()) {
+    return image.url.trim();
+  }
+  return null;
+}
+
+function selectAmazonAsin(url, amazonProduct) {
+  if (amazonProduct?.asin && typeof amazonProduct.asin === "string") {
+    return amazonProduct.asin;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    for (const segment of segments) {
+      if (/^[A-Z0-9]{10}$/i.test(segment)) {
+        return segment.toUpperCase();
+      }
+    }
+  } catch (error) {
+    return null;
+  }
+
+  return null;
+}
+
+function selectAmazonFeatures(amazonProduct) {
+  if (!Array.isArray(amazonProduct?.features)) {
+    return [];
+  }
+
+  return amazonProduct.features
+    .filter((feature) => typeof feature === "string")
+    .map((feature) => feature.trim())
+    .filter((feature) => feature.length > 0);
+}
+
+function extractPriceFromText(text) {
+  if (typeof text !== "string") {
+    return null;
+  }
+
+  const match = text.match(/(?:USD|US\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (!match) {
+    return null;
+  }
+
+  const normalized = match[1].replace(/,/g, "");
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Number.parseFloat(parsed.toFixed(2));
+}
 
 function generateInviteCode() {
   const lengthSpread = INVITE_CODE_MAX_LENGTH - INVITE_CODE_MIN_LENGTH + 1;
@@ -804,6 +1128,40 @@ app.put("/spaces/:id/rewards/:rewardId", async (req, res) => {
   }
 });
 
+app.delete("/spaces/:id/rewards/:rewardId", async (req, res) => {
+  const { value: spaceId, error: spaceError } = parseSpaceId(req.params.id);
+  if (spaceError) {
+    return sendJsonError(res, 400, spaceError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const { value: rewardId, error: rewardError } = parseSpaceId(req.params.rewardId);
+  if (rewardError) {
+    return sendJsonError(res, 400, rewardError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const ownerKey = resolveUserKey(req);
+
+  try {
+    const existing = await prisma.reward.findUnique({
+      where: { id: rewardId },
+    });
+
+    if (!existing || existing.spaceId !== spaceId) {
+      return sendJsonError(res, 404, "Reward not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (existing.ownerKey !== ownerKey) {
+      return sendJsonError(res, 403, "Only the owner can delete this reward.", ERROR_CODES.FORBIDDEN);
+    }
+
+    await prisma.reward.delete({ where: { id: rewardId } });
+    return res.status(204).send();
+  } catch (deleteError) {
+    req.log.error({ err: deleteError }, "Failed to delete reward");
+    return sendJsonError(res, 500, "Failed to delete reward.", ERROR_CODES.INTERNAL);
+  }
+});
+
 function parseIdParam(value, name, res) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -923,6 +1281,104 @@ function normalizePriceCents(value) {
   return { error: "priceCents must be an integer number of cents." };
 }
 
+function normalizePriceDollarsToCents(value, { fieldName = "Price" } = {}) {
+  if (value === undefined || value === null) {
+    return { value: null };
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return { error: `${fieldName} must be a finite number.` };
+    }
+    if (value < 0) {
+      return { error: `${fieldName} cannot be negative.` };
+    }
+    return { value: Math.round(value * 100) };
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return { value: null };
+    }
+
+    const cleaned = trimmed.replace(/[^0-9.,-]/g, "");
+    if (!cleaned) {
+      return { value: null };
+    }
+
+    const normalized = cleaned.replace(/,/g, "");
+    const parsed = Number.parseFloat(normalized);
+    if (!Number.isFinite(parsed)) {
+      return { error: `${fieldName} must be a number.` };
+    }
+    if (parsed < 0) {
+      return { error: `${fieldName} cannot be negative.` };
+    }
+    return { value: Math.round(parsed * 100) };
+  }
+
+  return { error: `${fieldName} must be a number.` };
+}
+
+function isAmazonProductUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return /amazon\./i.test(parsed.hostname);
+  } catch (error) {
+    return false;
+  }
+}
+
+function deriveAmazonTitleFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const ignored = new Set(["dp", "gp", "product", "ref", "aw", "sspa"]);
+
+    for (const segment of segments) {
+      const normalized = segment.trim();
+      if (!normalized) {
+        continue;
+      }
+
+      if (ignored.has(normalized.toLowerCase())) {
+        continue;
+      }
+
+      if (/^[A-Z0-9]{10}$/i.test(normalized)) {
+        continue;
+      }
+
+      const words = normalized
+        .replace(/[-_+]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!words) {
+        continue;
+      }
+
+      return words
+        .split(" ")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+
+    const keywords = parsed.searchParams.get("k") || parsed.searchParams.get("keywords");
+    if (keywords) {
+      return keywords
+        .replace(/\+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+  } catch (error) {
+    return null;
+  }
+
+  return null;
+}
+
 function parseBooleanInput(value) {
   if (value === undefined || value === null) {
     return { value: null };
@@ -977,6 +1433,9 @@ function mapGift(gift) {
 }
 
 function mapWishlistItem(item) {
+  const spaceMode = item?.space?.mode ?? DEFAULT_SPACE_MODE;
+  const { points } = resolvePointsForGift(spaceMode, item.gift, item);
+
   return {
     id: item.id,
     spaceId: item.spaceId,
@@ -991,6 +1450,7 @@ function mapWishlistItem(item) {
     createdAt: serializeDate(item.createdAt),
     updatedAt: serializeDate(item.updatedAt),
     gift: mapGift(item.gift ?? null),
+    points,
   };
 }
 
@@ -999,6 +1459,7 @@ function serializeReward(reward) {
     id: reward.id,
     spaceId: reward.spaceId,
     ownerKey: reward.ownerKey,
+    userId: reward.ownerKey,
     title: reward.title,
     points: reward.points,
     description: reward.description,
@@ -1123,15 +1584,121 @@ app.post("/wishlist", async (req, res) => {
         notes,
         priority: priorityResult.value,
         gift: {
-          create: {},
+          create: {
+            pricePointsLocked:
+              typeof resolvedPrice === "number" ? roundPriceToPoints(resolvedPrice) : null,
+          },
         },
       },
-      include: { gift: true },
+      include: { gift: true, space: { select: { mode: true } } },
     });
 
     return res.status(201).send(mapWishlistItem(created));
   } catch (error) {
     req.log.error({ err: error }, "Failed to create wishlist item");
+    return sendJsonError(res, 500, "Failed to create wishlist item.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/spaces/:id/gifts", async (req, res) => {
+  const { value: spaceId, error: spaceError } = parseSpaceId(req.params.id);
+  if (spaceError) {
+    return sendJsonError(res, 400, spaceError, ERROR_CODES.BAD_REQUEST);
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const title = sanitizeNullableString(req.body.title);
+  if (!title) {
+    return sendJsonError(res, 400, "Title is required.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const urlResult = normalizeUrl(req.body.url, { allowNull: true, fieldName: "URL" });
+  if (urlResult.error) {
+    return sendJsonError(res, 400, urlResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const imageResult = normalizeUrl(req.body.imageUrl, {
+    allowNull: true,
+    fieldName: "Image URL",
+    strict: false,
+  });
+  if (imageResult.error) {
+    return sendJsonError(res, 400, imageResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const priceResult = normalizePriceDollarsToCents(req.body.price);
+  if (priceResult.error) {
+    return sendJsonError(res, 400, priceResult.error, ERROR_CODES.BAD_REQUEST);
+  }
+
+  const notes = sanitizeNullableString(req.body.notes);
+
+  try {
+    const space = await prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { id: true, mode: true },
+    });
+
+    if (!space) {
+      return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    const normalizedMode = typeof space.mode === "string" ? space.mode.toLowerCase() : DEFAULT_SPACE_MODE;
+    const isValueMode = normalizedMode === "value" || normalizedMode === "sentiment";
+
+    const rawPoints = req.body.points;
+    let resolvedPoints = null;
+
+    if (isValueMode) {
+      const parsed = typeof rawPoints === "number" ? rawPoints : Number.parseInt(rawPoints, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return sendJsonError(res, 400, "Points must be a positive integer.", ERROR_CODES.BAD_REQUEST);
+      }
+      resolvedPoints = Math.trunc(parsed);
+    } else {
+      if (priceResult.value === null) {
+        return sendJsonError(
+          res,
+          400,
+          "Price is required for price-based spaces.",
+          ERROR_CODES.BAD_REQUEST,
+        );
+      }
+      if (rawPoints !== undefined && rawPoints !== null) {
+        const parsed = typeof rawPoints === "number" ? rawPoints : Number.parseInt(rawPoints, 10);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return sendJsonError(res, 400, "Points must be zero or a positive integer.", ERROR_CODES.BAD_REQUEST);
+        }
+        resolvedPoints = Math.trunc(parsed);
+      } else {
+        resolvedPoints = roundPriceToPoints(priceResult.value);
+      }
+    }
+
+    const created = await prisma.wishlistItem.create({
+      data: {
+        spaceId,
+        title,
+        url: urlResult.value,
+        image: imageResult.value,
+        priceCents: priceResult.value,
+        notes,
+        gift: {
+          create: {
+            sentimentPoints: isValueMode ? resolvedPoints : null,
+            pricePointsLocked: !isValueMode ? resolvedPoints : null,
+          },
+        },
+      },
+      include: { gift: true, space: { select: { mode: true } } },
+    });
+
+    return res.status(201).send({ wishlistItem: mapWishlistItem(created) });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to create wishlist item from space route");
     return sendJsonError(res, 500, "Failed to create wishlist item.", ERROR_CODES.INTERNAL);
   }
 });
@@ -1192,7 +1759,7 @@ app.get("/wishlist", async (req, res) => {
   try {
     const items = await prisma.wishlistItem.findMany({
       where: filters,
-      include: { gift: true },
+      include: { gift: true, space: { select: { mode: true } } },
       orderBy: { createdAt: "desc" },
     });
     return res.status(200).send(items.map(mapWishlistItem));
@@ -1242,7 +1809,7 @@ app.patch("/wishlist/:id", async (req, res) => {
     const updated = await prisma.wishlistItem.update({
       where: { id: itemId },
       data: updates,
-      include: { gift: true },
+      include: { gift: true, space: { select: { mode: true } } },
     });
     return res.status(200).send(mapWishlistItem(updated));
   } catch (error) {
