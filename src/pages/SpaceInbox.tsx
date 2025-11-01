@@ -2,22 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import InboxList, { type InboxItem } from "../components/InboxList";
 import Button from "../ui/components/Button";
+import PageHeader from "../ui/components/PageHeader";
 import { apiFetch } from "../utils/api";
+import { normalizeActivityItems } from "../utils/activity";
 import { getUserIdentity } from "../utils/user";
 import type { SpaceOutletContext } from "./SpaceLayout";
 import "./SpaceInbox.css";
 
 type LoadState = "idle" | "loading" | "error" | "ready";
-
-type ServerActivity = {
-  id?: number;
-  type?: string;
-  actor?: string;
-  payload?: Record<string, unknown> | null;
-  createdAt?: string;
-};
-
-const SUPPORTED_TYPES = new Set(["wishlist_add", "reward_add", "reward_edit", "reward_redeem"]);
 
 export default function SpaceInbox() {
   const { space } = useOutletContext<SpaceOutletContext>();
@@ -39,19 +31,8 @@ export default function SpaceInbox() {
         throw new Error("Unable to load activity.");
       }
 
-      const payload = (body as { activity?: ServerActivity[] }).activity ?? [];
-      const normalized: InboxItem[] = payload.map((entry, index) => {
-        const type = typeof entry.type === "string" && SUPPORTED_TYPES.has(entry.type)
-          ? (entry.type as InboxItem["type"])
-          : "wishlist_add";
-        return {
-          id: entry.id ?? index,
-          type,
-          actor: typeof entry.actor === "string" && entry.actor.trim() ? entry.actor : "Unknown",
-          createdAt: entry.createdAt ?? new Date().toISOString(),
-          payload: entry.payload ?? null,
-        } satisfies InboxItem;
-      });
+      const payload = (body as { activity?: unknown }).activity ?? [];
+      const normalized: InboxItem[] = normalizeActivityItems(payload);
 
       setItems(normalized);
       setLoadState("ready");
@@ -71,15 +52,12 @@ export default function SpaceInbox() {
 
   return (
     <div className="space-inbox" aria-labelledby="space-inbox-title">
-      <header className="space-inbox__header">
-        <p className="space-inbox__eyebrow">Inbox</p>
-        <h1 id="space-inbox-title" className="space-inbox__title">
-          Recent activity for {space.name}
-        </h1>
-        <p className="space-inbox__subtitle">
-          Stay in sync with wishlist updates, reward edits, and redemptions across your space.
-        </p>
-      </header>
+      <PageHeader
+        eyebrow="Inbox"
+        title={`Recent activity for ${space.name}`}
+        titleId="space-inbox-title"
+        description="Stay in sync with wishlist updates, reward edits, and redemptions across your space."
+      />
 
       <section className="space-inbox__panel" aria-live="polite">
         {loadState === "loading" ? <p className="space-inbox__status">Loading activity…</p> : null}

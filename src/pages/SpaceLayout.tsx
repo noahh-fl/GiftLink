@@ -4,7 +4,6 @@ import ErrorBoundary from "../components/ErrorBoundary";
 import Button from "../ui/components/Button";
 import { apiFetch } from "../utils/api";
 import { useSpace } from "../contexts/SpaceContext";
-import { getUserIdentity, subscribeToUserChanges, type UserIdentity } from "../utils/user";
 import "./SpaceLayout.css";
 
 type LoadState = "idle" | "loading" | "error" | "ready";
@@ -31,19 +30,11 @@ export default function SpaceLayout() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [space, setSpace] = useState<SpaceDetails | null>(null);
   const [error, setError] = useState("");
-  const [identity, setIdentity] = useState<UserIdentity>(() => getUserIdentity());
 
   const numericSpaceId = useMemo(() => {
     const parsed = Number.parseInt(spaceId ?? "", 10);
     return Number.isFinite(parsed) ? parsed : null;
   }, [spaceId]);
-
-  useEffect(() => {
-    const unsubscribe = subscribeToUserChanges((nextIdentity) => {
-      setIdentity(nextIdentity);
-    });
-    return unsubscribe;
-  }, []);
 
   const fetchSpace = useCallback(async () => {
     if (numericSpaceId === null) {
@@ -114,44 +105,25 @@ export default function SpaceLayout() {
   return (
     <div className="space-layout">
       <header className="space-layout__header">
-        <div className="space-layout__brand">
-          <Button type="button" variant="secondary" onClick={() => navigate("/")}>GiftLink</Button>
-          <div className="space-layout__meta">
-            <p className="space-layout__space-name">{space?.name ?? "Loading space"}</p>
-            {space?.joinCode ? (
-              <p className="space-layout__space-code" aria-live="polite">
-                Join code <span>{space.joinCode}</span>
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <div className="space-layout__header-tools">
-          {import.meta.env.DEV ? (
-            <div className="space-layout__tester" aria-live="polite">
-              <span className="space-layout__tester-label">Tester</span>
-              <span className="space-layout__tester-value">{identity.id}</span>
-            </div>
-          ) : null}
-          <nav aria-label="Space">
-            <ul className="space-layout__nav" role="list">
-              {navItems.map((item) => (
-                <li key={item.to}>
-                  <NavLink
-                    to={item.to}
-                    end={item.end}
-                    className={({ isActive }) =>
-                      ["space-layout__nav-link", isActive ? "space-layout__nav-link--active" : ""]
-                        .filter(Boolean)
-                        .join(" ")
-                    }
-                  >
-                    {item.label}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </div>
+        <nav aria-label="Space">
+          <ul className="space-layout__nav" role="list">
+            {navItems.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    ["space-layout__nav-link", isActive ? "space-layout__nav-link--active" : ""]
+                      .filter(Boolean)
+                      .join(" ")
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </header>
 
       <main className="space-layout__main" aria-live="polite">

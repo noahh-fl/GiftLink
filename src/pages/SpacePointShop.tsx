@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import Button from "../ui/components/Button";
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
+import PageHeader from "../ui/components/PageHeader";
 import PointsBadge from "../components/PointsBadge";
 import RewardCard, { renderRewardIcon } from "../components/RewardCard";
 import RewardModal from "../components/RewardModal";
@@ -50,6 +51,8 @@ interface Reward {
 
 export default function SpacePointShop() {
   const { space } = useOutletContext<SpaceOutletContext>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const identity = getUserIdentity();
   const { showToast } = useToast();
 
@@ -75,6 +78,15 @@ export default function SpacePointShop() {
   const [modalError, setModalError] = useState("");
   const [redeemingId, setRedeemingId] = useState<number | null>(null);
   const [redeemedIds, setRedeemedIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    const state = location.state as { view?: ViewMode } | null;
+    if (state?.view) {
+      const nextView: ViewMode = state.view === "partner" ? "partner" : "mine";
+      setView(nextView);
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
 
   const loadRewards = useCallback(async () => {
     setLoadState((previous) => (previous === "ready" ? previous : "loading"));
@@ -125,7 +137,7 @@ export default function SpacePointShop() {
       const numericPoints = typeof rawPoints === "number" ? rawPoints : Number.parseInt(String(rawPoints ?? 0), 10);
       setBalance(Number.isFinite(numericPoints) ? numericPoints : 0);
       setBalanceError("");
-    } catch (error) {
+    } catch {
       setBalance(null);
       setBalanceError("Unable to load balance.");
     }
@@ -376,32 +388,30 @@ export default function SpacePointShop() {
 
   return (
     <div className="space-shop" aria-labelledby="space-shop-title">
-      <header className="space-shop__header">
-        <div className="space-shop__intro">
-          <p className="space-shop__eyebrow">Gift shop</p>
-          <h1 id="space-shop-title" className="space-shop__title">
-            Rewards for {space.name}
-          </h1>
-          <p className="space-shop__subtitle">
-            Earn points from confirmed gifts, then spend them on thoughtful experiences or favors.
-          </p>
-        </div>
-        <div className="space-shop__header-actions">
-          <div className="space-shop__balance" aria-live="polite">
-            <span className="space-shop__balance-label">Points balance</span>
-            <PointsBadge className="space-shop__balance-badge" label={balanceLabel} ariaLabel={`${balanceLabel} available`} />
-            {balanceError ? <span className="space-shop__balance-error">{balanceError}</span> : null}
+      <PageHeader
+        eyebrow="Gift shop"
+        title={`Rewards for ${space.name}`}
+        titleId="space-shop-title"
+        description="Earn points from confirmed gifts, then spend them on thoughtful experiences or favors."
+        actions={
+          <div className="space-shop__header-actions">
+            <div className="space-shop__balance" aria-live="polite">
+              <span className="space-shop__balance-label">Points balance</span>
+              <PointsBadge className="space-shop__balance-badge" label={balanceLabel} ariaLabel={`${balanceLabel} available`} />
+              {balanceError ? <span className="space-shop__balance-error">{balanceError}</span> : null}
+            </div>
+            <ShopTabs
+              ariaLabel="Gift shop view"
+              value={view}
+              tabs={[
+                { value: "mine", label: "My shop" },
+                { value: "partner", label: "Partner shop" },
+              ]}
+              onChange={(next) => setView(next as ViewMode)}
+            />
           </div>
-          <ShopTabs
-            value={view}
-            tabs={[
-              { value: "mine", label: "My shop" },
-              { value: "partner", label: "Partner shop" },
-            ]}
-            onChange={(next) => setView(next as ViewMode)}
-          />
-        </div>
-      </header>
+        }
+      />
 
       {view === "mine" ? (
         <form className="space-shop__form" onSubmit={handleSubmit} noValidate>

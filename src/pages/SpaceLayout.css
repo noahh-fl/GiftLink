@@ -6,12 +6,47 @@
   flex-direction: column;
 }
 
-.space-layout__header {
+.space-layout__nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
+  justify-content: center;
+  gap: var(--space-5);
+}
+
+.space-layout__nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) 0;
+  text-decoration: none;
+  color: var(--color-text-muted);
+  font-size: var(--body-size);
+  font-weight: var(--body-weight);
+  border-bottom: 2px solid transparent;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.space-layout__nav-link:hover,
+.space-layout__nav-link:focus-visible {
+  color: var(--color-text);
+}
+
+.space-layout__nav-link--active {
+  color: var(--color-text);
+  font-weight: var(--h3-weight);
+  border-bottom-color: var(--color-accent);
+}
+
+.space-layout__nav-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+
+.space-layout__header {
+  padding: var(--space-4) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   position: sticky;
@@ -19,110 +54,13 @@
   z-index: 10;
 }
 
-.space-layout__brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.space-layout__header-tools {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.space-layout__meta {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.space-layout__space-name {
-  margin: 0;
-  font-size: var(--h3-size);
-  font-weight: var(--h3-weight);
-}
-
-.space-layout__space-code {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--caption-size);
-  font-weight: var(--caption-weight);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.space-layout__space-code span {
-  display: inline-block;
-  background: var(--color-accent-quiet);
-  color: var(--color-accent);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
-  margin-left: var(--space-2);
-  font-weight: var(--body-weight);
-  letter-spacing: normal;
-  text-transform: none;
-}
-
 .space-layout__nav {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  gap: var(--space-3);
-}
-
-.space-layout__nav-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  text-decoration: none;
-  color: var(--color-text-muted);
-  transition: color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
-}
-
-.space-layout__nav-link:hover,
-.space-layout__nav-link:focus-visible {
-  color: var(--color-text);
-  background: var(--color-accent-quiet);
-  outline: none;
-}
-
-.space-layout__nav-link--active {
-  color: var(--color-text);
-  background: var(--color-accent-quiet);
-  font-weight: var(--h3-weight);
-}
-
-.space-layout__tester {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--color-accent-quiet);
-  color: var(--color-text);
-  font-size: var(--caption-size);
-  font-weight: var(--caption-weight);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.space-layout__tester-label {
-  color: var(--color-text-muted);
-}
-
-.space-layout__tester-value {
-  font-weight: var(--h3-weight);
-  text-transform: none;
-  letter-spacing: normal;
+  overflow-x: auto;
 }
 
 .space-layout__main {
   flex: 1;
-  padding: var(--space-6);
+  padding: var(--space-5) var(--space-4);
 }
 
 .space-layout__status {
@@ -148,22 +86,8 @@
 }
 
 @media (max-width: 720px) {
-  .space-layout__header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .space-layout__header-tools {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .space-layout__nav {
-    flex-wrap: wrap;
-  }
-
-  .space-layout__main {
-    padding: var(--space-4);
+    justify-content: flex-start;
+    gap: var(--space-4);
   }
 }
