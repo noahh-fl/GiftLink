@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
@@ -93,6 +93,12 @@ export default function SpaceWishlist() {
   const [viewMode, setViewMode] = useState<ViewOption>("grid");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WishlistItem | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<WishlistItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const deleteCancelRef = useRef<HTMLButtonElement | null>(null);
+  const deleteButtonRefs = useRef(new Map<number, HTMLButtonElement>());
+  const lastDeleteTriggerId = useRef<number | null>(null);
+  const listSectionRef = useRef<HTMLElement | null>(null);
 
   const isValueMode = useMemo(() => {
     const mode = (space.mode ?? "price").toLowerCase();
@@ -221,6 +227,50 @@ export default function SpaceWishlist() {
     }
   }, [location, navigate, openCreateForm]);
 
+  useEffect(() => {
+    if (!pendingDelete) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleteLoading) {
+        event.preventDefault();
+        setPendingDelete(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    const frame = window.requestAnimationFrame(() => {
+      deleteCancelRef.current?.focus();
+    });
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [pendingDelete, deleteLoading]);
+
+  useEffect(() => {
+    if (pendingDelete) {
+      return;
+    }
+
+    if (lastDeleteTriggerId.current !== null) {
+      const trigger = deleteButtonRefs.current.get(lastDeleteTriggerId.current);
+      const fallback = listSectionRef.current;
+      if (trigger) {
+        window.requestAnimationFrame(() => {
+          trigger.focus();
+        });
+      } else if (fallback) {
+        window.requestAnimationFrame(() => {
+          fallback.focus();
+        });
+      }
+      lastDeleteTriggerId.current = null;
+    }
+  }, [pendingDelete]);
+
   function handleToggleForm() {
     setFormOpen((previous) => {
       const next = !previous;
@@ -260,6 +310,65 @@ export default function SpaceWishlist() {
     setParseError("");
     setManualEntryNotice("");
   }
+
+  const setDeleteButtonNode = useCallback((id: number, node: HTMLButtonElement | null) => {
+    if (node) {
+      deleteButtonRefs.current.set(id, node);
+    } else {
+      deleteButtonRefs.current.delete(id);
+    }
+  }, []);
+
+  const handleRequestDelete = useCallback((item: WishlistItem) => {
+    lastDeleteTriggerId.current = item.id;
+    setPendingDelete(item);
+  }, []);
+
+  const handleCancelDelete = useCallback(() => {
+    if (deleteLoading) {
+      return;
+    }
+    setPendingDelete(null);
+  }, [deleteLoading]);
+
+  const handleDeleteOverlayClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (event.target === event.currentTarget && !deleteLoading) {
+        setPendingDelete(null);
+      }
+    },
+    [deleteLoading],
+  );
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) {
+      return;
+    }
+
+    setDeleteLoading(true);
+
+    try {
+      const response = await apiFetch(`/wishlist/${pendingDelete.id}`, { method: "DELETE" });
+
+      if (response.status === 204) {
+        setItems((previous) => previous.filter((item) => item.id !== pendingDelete.id));
+        showToast({ intent: "success", description: "Wishlist item deleted." });
+        setPendingDelete(null);
+      } else {
+        const body = await response.json().catch(() => null);
+        const message =
+          body && typeof body === "object" && typeof (body as { message?: string }).message === "string"
+            ? (body as { message: string }).message
+            : "Unable to delete item.";
+        throw new Error(message);
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Unable to delete item.";
+      showToast({ intent: "error", description: message });
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [pendingDelete, setItems, showToast]);
 
   async function handleFetchDetails() {
     const trimmedUrl = formState.url.trim();
@@ -444,6 +553,7 @@ export default function SpaceWishlist() {
   const displayItems = activeTab === "mine" ? sortedItems : partnerItems;
   const hasItems = displayItems.length > 0;
   const showPagination = hasItems;
+  const isMyList = activeTab === "mine";
 
   return (
     <div className={`ui-refresh-wishlist ${styles.page}`} aria-labelledby="space-wishlist-title">
@@ -700,7 +810,12 @@ export default function SpaceWishlist() {
         </form>
       ) : null}
 
-      <section className={styles.listSection} aria-live="polite">
+      <section
+        ref={listSectionRef}
+        className={styles.listSection}
+        aria-live="polite"
+        tabIndex={-1}
+      >
         {loadState === "loading" ? <p className={styles.status}>Loading wishlist…</p> : null}
         {loadState === "error" ? (
           <div className={styles.errorState}>
@@ -730,6 +845,8 @@ export default function SpaceWishlist() {
                 metaParts.push(`Added ${formatDate(item.createdAt)}`);
               }
 
+              const isOwnerView = isMyList;
+
               if (viewMode === "grid") {
                 return (
                   <WishlistCard
@@ -740,10 +857,14 @@ export default function SpaceWishlist() {
                     pointsLabel={`${points} pts`}
                     notes={item.notes ?? undefined}
                     meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
-                    actionLabel={activeTab === "mine" ? "Edit" : "View"}
-                    onAction={activeTab === "mine" ? () => handleEdit(item) : undefined}
-                    href={activeTab === "partners" ? item.url ?? undefined : undefined}
-                    actionType={activeTab === "partners" ? "link" : "button"}
+                    actionLabel={isOwnerView ? "Edit" : "View"}
+                    onAction={isOwnerView ? () => handleEdit(item) : undefined}
+                    href={!isOwnerView ? item.url ?? undefined : undefined}
+                    actionType={!isOwnerView ? "link" : "button"}
+                    deleteLabel={`Delete ${item.title}`}
+                    onDelete={isOwnerView ? () => handleRequestDelete(item) : undefined}
+                    deleteButtonRef={isOwnerView ? (node) => setDeleteButtonNode(item.id, node) : undefined}
+                    deleteDisabled={isOwnerView && pendingDelete?.id === item.id ? deleteLoading : false}
                   />
                 );
               }
@@ -757,10 +878,22 @@ export default function SpaceWishlist() {
                   <div className={styles.listPoints}>{points} pts</div>
                   <div className={styles.listPrice}>{priceLabel ?? "—"}</div>
                   <div className={styles.listAction}>
-                    {activeTab === "mine" ? (
-                      <button type="button" className={styles.inlineAction} onClick={() => handleEdit(item)}>
-                        Edit
-                      </button>
+                    {isOwnerView ? (
+                      <div className={styles.listActionGroup}>
+                        <button type="button" className={styles.inlineAction} onClick={() => handleEdit(item)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.deleteButton}
+                          onClick={() => handleRequestDelete(item)}
+                          ref={(node) => setDeleteButtonNode(item.id, node)}
+                          aria-label={`Delete ${item.title}`}
+                          disabled={pendingDelete?.id === item.id && deleteLoading}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     ) : item.url ? (
                       <a className={styles.inlineLink} href={item.url} target="_blank" rel="noreferrer">
                         View
@@ -784,6 +917,45 @@ export default function SpaceWishlist() {
             1
           </button>
         </nav>
+      ) : null}
+
+      {pendingDelete ? (
+        <div className={styles.deleteOverlay} role="presentation" onClick={handleDeleteOverlayClick}>
+          <div
+            className={styles.deleteDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-description"
+            aria-busy={deleteLoading ? "true" : undefined}
+          >
+            <h2 id="delete-dialog-title" className={styles.deleteDialogTitle}>
+              Remove item?
+            </h2>
+            <p id="delete-dialog-description" className={styles.deleteDialogBody}>
+              “{pendingDelete.title}” will be removed from your wishlist.
+            </p>
+            <div className={styles.deleteActions}>
+              <button
+                type="button"
+                className={[styles.dialogButton, styles.dialogButtonSecondary].join(" ")}
+                onClick={handleCancelDelete}
+                ref={deleteCancelRef}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={[styles.dialogButton, styles.dialogButtonDanger].join(" ")}
+                onClick={() => void handleConfirmDelete()}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? "Deleting…" : "Delete item"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

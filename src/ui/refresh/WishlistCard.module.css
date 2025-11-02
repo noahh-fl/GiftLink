@@ -45,6 +45,12 @@
   align-items: flex-start;
 }
 
+.headerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .title {
   margin: 0;
   font-size: var(--h3-size);
@@ -59,6 +65,57 @@
   color: var(--color-text);
   font-size: var(--caption-size);
   font-weight: var(--caption-weight);
+}
+
+.deleteButton {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.deleteButton:hover {
+  background: var(--color-danger);
+  color: var(--color-surface);
+}
+
+.deleteButton:active {
+  filter: brightness(0.95);
+}
+
+.deleteButton:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.card:hover .deleteButton,
+.card:focus-within .deleteButton {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.deleteButton:disabled {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: wait;
+  opacity: 0.7;
+  visibility: visible;
+  pointer-events: none;
 }
 
 .price {

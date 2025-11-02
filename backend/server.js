@@ -2148,6 +2148,30 @@ app.get("/wishlist", async (req, res) => {
   }
 });
 
+app.delete("/wishlist/:id", async (req, res) => {
+  const itemId = parseIdParam(req.params.id, "Wishlist id", res);
+  if (!itemId) {
+    return;
+  }
+
+  try {
+    const existing = await prisma.wishlistItem.findUnique({
+      where: { id: itemId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return sendJsonError(res, 404, "Wishlist item not found.", ERROR_CODES.NOT_FOUND);
+    }
+
+    await prisma.wishlistItem.delete({ where: { id: itemId } });
+    return res.status(204).send();
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to delete wishlist item");
+    return sendJsonError(res, 500, "Failed to delete wishlist item.", ERROR_CODES.INTERNAL);
+  }
+});
+
 app.patch("/wishlist/:id", async (req, res) => {
   const itemId = parseIdParam(req.params.id, "Wishlist id", res);
   if (!itemId) {
