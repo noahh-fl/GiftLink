@@ -11,6 +11,10 @@ interface WishlistCardProps {
   onAction?: () => void;
   href?: string | null;
   actionType?: "button" | "link";
+  deleteLabel?: string;
+  onDelete?: () => void;
+  deleteButtonRef?: (node: HTMLButtonElement | null) => void;
+  deleteDisabled?: boolean;
 }
 
 export default function WishlistCard({
@@ -24,6 +28,10 @@ export default function WishlistCard({
   onAction,
   href,
   actionType = "button",
+  deleteLabel,
+  onDelete,
+  deleteButtonRef,
+  deleteDisabled = false,
 }: WishlistCardProps) {
   const actionClass = [styles.action, actionType === "link" ? styles.linkAction : undefined]
     .filter(Boolean)
@@ -32,6 +40,15 @@ export default function WishlistCard({
   const handleClick = () => {
     if (onAction) {
       onAction();
+    }
+  };
+
+  const handleDelete = () => {
+    if (deleteDisabled) {
+      return;
+    }
+    if (onDelete) {
+      onDelete();
     }
   };
 
@@ -45,6 +62,19 @@ export default function WishlistCard({
     </button>
   );
 
+  const deleteButton = onDelete ? (
+    <button
+      type="button"
+      className={styles.deleteButton}
+      onClick={handleDelete}
+      aria-label={deleteLabel ?? "Delete item"}
+      ref={deleteButtonRef}
+      disabled={deleteDisabled}
+    >
+      Delete
+    </button>
+  ) : null;
+
   return (
     <article className={styles.card}>
       <div className={styles.media}>
@@ -53,7 +83,10 @@ export default function WishlistCard({
       <div className={styles.content}>
         <div className={styles.header}>
           <h3 className={styles.title}>{title}</h3>
-          <span className={styles.points}>{pointsLabel}</span>
+          <div className={styles.headerActions}>
+            <span className={styles.points}>{pointsLabel}</span>
+            {deleteButton}
+          </div>
         </div>
         {priceLabel ? <p className={styles.price}>{priceLabel}</p> : null}
         {notes ? <p className={styles.notes}>{notes}</p> : null}
