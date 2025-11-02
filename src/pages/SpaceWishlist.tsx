@@ -160,6 +160,23 @@ export default function SpaceWishlist() {
     return Math.trunc(parsed);
   }, [formState.points]);
 
+  const resetFormState = useCallback(() => {
+    setFormState(() => ({ ...INITIAL_FORM }));
+    setParseError("");
+    setManualEntryNotice("");
+    setFormError("");
+    setAllowEditDetails(false);
+    setIsManualEntry(false);
+    setFlowStep("link");
+    setFetchingDetails(false);
+    setEditingItem(null);
+  }, []);
+
+  const openCreateForm = useCallback(() => {
+    resetFormState();
+    setFlowStep("link");
+  }, [resetFormState]);
+
   const loadWishlist = useCallback(async () => {
     setLoadState((previous) => (previous === "ready" ? previous : "loading"));
     setLoadError("");
@@ -203,23 +220,6 @@ export default function SpaceWishlist() {
       navigate(location.pathname, { replace: true });
     }
   }, [location, navigate, openCreateForm]);
-
-  const resetFormState = useCallback(() => {
-    setFormState(() => ({ ...INITIAL_FORM }));
-    setParseError("");
-    setManualEntryNotice("");
-    setFormError("");
-    setAllowEditDetails(false);
-    setIsManualEntry(false);
-    setFlowStep("link");
-    setFetchingDetails(false);
-    setEditingItem(null);
-  }, []);
-
-  const openCreateForm = useCallback(() => {
-    resetFormState();
-    setFlowStep("link");
-  }, [resetFormState]);
 
   function handleToggleForm() {
     setFormOpen((previous) => {
