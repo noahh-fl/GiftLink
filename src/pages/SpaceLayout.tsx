@@ -4,7 +4,7 @@ import ErrorBoundary from "../components/ErrorBoundary";
 import Button from "../ui/components/Button";
 import { apiFetch } from "../utils/api";
 import { useSpace } from "../contexts/SpaceContext";
-import "./SpaceLayout.css";
+import styles from "./SpaceLayout.module.css";
 
 type LoadState = "idle" | "loading" | "error" | "ready";
 
@@ -103,17 +103,17 @@ export default function SpaceLayout() {
   const isSpaceIdInvalid = numericSpaceId === null;
 
   return (
-    <div className="space-layout">
-      <header className="space-layout__header">
-        <nav aria-label="Space">
-          <ul className="space-layout__nav" role="list">
+    <div className={styles.layout}>
+      <header className={styles.header}>
+        <nav aria-label="Space" className={styles.navWrapper}>
+          <ul className={styles.navList} role="list">
             {navItems.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}
                   end={item.end}
                   className={({ isActive }) =>
-                    ["space-layout__nav-link", isActive ? "space-layout__nav-link--active" : ""]
+                    [styles.navLink, isActive ? styles.navLinkActive : undefined]
                       .filter(Boolean)
                       .join(" ")
                   }
@@ -126,14 +126,12 @@ export default function SpaceLayout() {
         </nav>
       </header>
 
-      <main className="space-layout__main" aria-live="polite">
-        {loadState === "loading" ? (
-          <div className="space-layout__status">Loading space…</div>
-        ) : null}
+      <main className={styles.main} aria-live="polite">
+        {loadState === "loading" ? <div className={styles.status}>Loading space…</div> : null}
         {loadState === "error" ? (
-          <div className="space-layout__status space-layout__status--error">
+          <div className={[styles.status, styles.statusError].join(" ")}>
             <p>{error}</p>
-            <div className="space-layout__error-actions">
+            <div className={styles.errorActions}>
               <Button type="button" variant="secondary" onClick={() => fetchSpace()}>
                 Retry
               </Button>
@@ -149,7 +147,7 @@ export default function SpaceLayout() {
           <ErrorBoundary
             resetKeys={[space.id, loadState]}
             fallback={({ reset }) => (
-              <div className="space-layout__status space-layout__status--error">
+              <div className={[styles.status, styles.statusError].join(" ")}>
                 <p>Something went wrong. Please try again.</p>
                 <Button
                   type="button"

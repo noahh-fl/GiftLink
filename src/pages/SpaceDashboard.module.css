@@ -1,0 +1,228 @@
+.page {
+  --page-max-width: 768px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  background: var(--color-bg);
+  min-height: 100%;
+  width: min(100%, var(--page-max-width));
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.eyebrow {
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.title {
+  font-size: var(--h1-size);
+  font-weight: var(--h1-weight);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.description {
+  font-size: var(--body-size);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.joinSection {
+  display: flex;
+}
+
+.divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+.pointsSection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.pointsLabel {
+  font-size: var(--h2-size);
+  font-weight: var(--h2-weight);
+  margin: 0;
+  color: var(--color-text);
+}
+
+.pointsLoading {
+  font-size: var(--body-size);
+  color: var(--color-text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.activitySection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.sectionTitle {
+  font-size: var(--h3-size);
+  font-weight: var(--h3-weight);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.inlineLink {
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+}
+
+.inlineLink:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.activityCard {
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--elev-1);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.skeletonStack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.skeletonStack span {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--color-border);
+  animation: pulse var(--dur-med) var(--ease) infinite alternate;
+}
+
+@keyframes pulse {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.errorState {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.errorState p {
+  margin: 0;
+  font-size: var(--body-size);
+  color: var(--color-danger);
+}
+
+.retryButton {
+  border: none;
+  background: var(--color-text);
+  color: var(--color-surface);
+  font: inherit;
+  font-weight: 600;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.retryButton:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.retryButton:hover {
+  opacity: 0.9;
+}
+
+.quickActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.quickGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.footer {
+  margin-top: auto;
+}
+
+.settingsButton {
+  width: 100%;
+  padding: var(--space-4);
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.settingsButton:hover {
+  opacity: 0.9;
+}
+
+.settingsButton:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (min-width: 768px) {
+  .page {
+    padding: var(--space-8) var(--space-8) var(--space-12);
+  }
+
+  .activityCard {
+    padding: var(--space-6);
+  }
+}

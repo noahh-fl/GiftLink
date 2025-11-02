@@ -1,0 +1,456 @@
+.page {
+  --max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  background: var(--color-bg);
+  min-height: 100%;
+  width: min(100%, var(--max-width));
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.eyebrow {
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 0;
+}
+
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.title {
+  font-size: var(--h1-size);
+  font-weight: var(--h1-weight);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.tabs {
+  display: inline-flex;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+}
+
+.tabButton {
+  border: none;
+  background: none;
+  padding: var(--space-2) 0;
+  font: inherit;
+  font-size: var(--body-size);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tabButton:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.tabActive {
+  color: var(--color-text);
+  border-bottom-color: var(--color-text);
+}
+
+.toolbar {
+  justify-content: flex-end;
+}
+
+.toolbarSpacer {
+  display: none;
+}
+
+.filterButton {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filterButton:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.filterPanel {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.form {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--elev-1);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.linkStep,
+.detailsStep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.stepHeader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stepTitle {
+  margin: 0;
+  font-size: var(--h2-size);
+  font-weight: var(--h2-weight);
+  color: var(--color-text);
+}
+
+.stepHint {
+  margin: 0;
+  font-size: var(--body-size);
+  color: var(--color-text-muted);
+}
+
+.stepActions,
+.stepControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.textAction {
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+}
+
+.textAction:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.formStatus,
+.notice {
+  margin: 0;
+  font-size: var(--body-size);
+  color: var(--color-danger);
+}
+
+.notice {
+  color: var(--color-text-muted);
+}
+
+.detailsGrid {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.formFields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.row {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.pointsPreview,
+.pointsSummary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pointsPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  background: var(--color-accent-quiet);
+  color: var(--color-text);
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+}
+
+.pointsCaption {
+  margin: 0;
+  font-size: var(--caption-size);
+  color: var(--color-text-muted);
+}
+
+.pointsPlaceholder {
+  margin: 0;
+  font-size: var(--body-size);
+  color: var(--color-text-muted);
+}
+
+.notesField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.notesLabel {
+  font-size: var(--body-size);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.optional {
+  font-size: var(--caption-size);
+  color: var(--color-text-muted);
+  margin-left: var(--space-2);
+}
+
+.textarea {
+  min-height: 96px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  padding: var(--space-3);
+  font: inherit;
+  resize: vertical;
+}
+
+.previewPane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.previewImage {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.previewImage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewPlaceholder {
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.previewMeta {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.previewMeta div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.previewMeta dt {
+  font-size: var(--caption-size);
+  color: var(--color-text-muted);
+}
+
+.previewMeta dd {
+  margin: 0;
+  font-size: var(--body-size);
+  color: var(--color-text);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.listSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.status,
+.emptyState {
+  margin: 0;
+  font-size: var(--body-size);
+  color: var(--color-text-muted);
+}
+
+.errorState {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-danger);
+}
+
+.cardGrid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.listView {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.listRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) auto auto auto;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: center;
+}
+
+.listMeta {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.listTitle {
+  margin: 0;
+  font-size: var(--body-size);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.listInfo {
+  margin: 0;
+  font-size: var(--caption-size);
+  color: var(--color-text-muted);
+}
+
+.listPoints,
+.listPrice {
+  font-size: var(--body-size);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.listAction {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inlineAction {
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inlineAction[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.inlineLink {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.inlineLink:hover {
+  text-decoration: underline;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.pageButton {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pageButtonActive {
+  background: var(--color-text);
+  color: var(--color-surface);
+  cursor: default;
+}
+
+.pageButton:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .detailsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .titleRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .listRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+    text-align: left;
+  }
+
+  .listAction {
+    justify-content: flex-start;
+  }
+}

@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import FormField from "../ui/components/FormField";
 import Input from "../ui/components/Input";
 import Button from "../ui/components/Button";
-import PageHeader from "../ui/components/PageHeader";
-import PointsBadge from "../components/PointsBadge";
-import { GiftCard } from "../components/GiftCard";
 import { useToast } from "../contexts/ToastContext";
 import { apiFetch } from "../utils/api";
 import {
@@ -12,32 +10,23 @@ import {
   formatCurrencyFromCents,
   normalizePriceInput,
 } from "../utils/price";
+import { getUserIdentity } from "../utils/user";
 import type { SpaceOutletContext } from "./SpaceLayout";
-import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import "./SpaceWishlist.css";
-
-interface WishlistGift {
-  status?: string | null;
-  sentimentPoints?: number | null;
-  pricePointsLocked?: number | null;
-}
-
-interface WishlistItem {
-  id: number;
-  title: string;
-  url?: string | null;
-  image?: string | null;
-  priceCents?: number | null;
-  notes?: string | null;
-  createdAt?: string;
-  gift?: WishlistGift | null;
-  points?: number | null;
-}
+import Toolbar from "../ui/refresh/Toolbar";
+import ViewToggle, { type ViewOption } from "../ui/refresh/ViewToggle";
+import WishlistCard from "../ui/refresh/WishlistCard";
+import {
+  extractWishlistItems,
+  resolveItemPoints,
+  type WishlistItem,
+} from "./SpaceWishlist.utils";
+import styles from "./SpaceWishlist.module.css";
 
 type LoadState = "idle" | "loading" | "error" | "ready";
 type FlowStep = "link" | "details";
+type ActiveTab = "mine" | "partners";
 
-interface ParsedGiftResponse {
+type ParsedGiftResponse = {
   title: string | null;
   rawTitle: string | null;
   price: number | null;
@@ -47,9 +36,9 @@ interface ParsedGiftResponse {
   features?: string[] | null;
   rating?: number | null;
   reviewCount?: number | null;
-}
+};
 
-interface GiftFormState {
+type GiftFormState = {
   url: string;
   title: string;
   price: string;
@@ -57,7 +46,7 @@ interface GiftFormState {
   notes: string;
   points: string;
   currency: string;
-}
+};
 
 const INITIAL_FORM: GiftFormState = {
   url: "",
@@ -80,103 +69,13 @@ function formatDate(iso?: string) {
   return date.toLocaleDateString();
 }
 
-function resolveItemPoints(item: WishlistItem): number {
-  if (typeof item.points === "number") {
-    return item.points;
-  }
-  if (typeof item.gift?.sentimentPoints === "number") {
-    return item.gift.sentimentPoints;
-  }
-  if (typeof item.gift?.pricePointsLocked === "number") {
-    return item.gift.pricePointsLocked;
-  }
-  if (typeof item.priceCents === "number") {
-    return Math.max(0, Math.round(item.priceCents / 100));
-  }
-  return 0;
-}
-
-function sanitizeWishlistItem(raw: unknown): WishlistItem | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-
-  const candidate = raw as Partial<WishlistItem> & { id?: unknown };
-  const numericId =
-    typeof candidate.id === "number"
-      ? candidate.id
-      : Number.parseInt(typeof candidate.id === "string" ? candidate.id : "", 10);
-
-  if (!Number.isFinite(numericId)) {
-    return null;
-  }
-
-  const safeTitle =
-    typeof candidate.title === "string" && candidate.title.trim()
-      ? candidate.title.trim()
-      : `Gift #${numericId}`;
-
-  return {
-    id: numericId,
-    title: safeTitle,
-    url: typeof candidate.url === "string" ? candidate.url : null,
-    image: typeof candidate.image === "string" ? candidate.image : null,
-    priceCents: typeof candidate.priceCents === "number" ? candidate.priceCents : null,
-    notes: typeof candidate.notes === "string" ? candidate.notes : null,
-    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : undefined,
-    gift: candidate.gift ?? null,
-    points: typeof candidate.points === "number" ? candidate.points : null,
-  };
-}
-
-function extractWishlistItems(payload: unknown): WishlistItem[] | null {
-  let source: unknown;
-
-  if (Array.isArray(payload)) {
-    source = payload;
-  } else if (payload && typeof payload === "object") {
-    const container = payload as {
-      gifts?: unknown;
-      items?: unknown;
-      wishlist?: unknown;
-      wishlistItems?: unknown;
-    };
-
-    if (Array.isArray(container.gifts)) {
-      source = container.gifts;
-    } else if (Array.isArray(container.wishlistItems)) {
-      source = container.wishlistItems;
-    } else if (Array.isArray(container.items)) {
-      source = container.items;
-    } else if (Array.isArray(container.wishlist)) {
-      source = container.wishlist;
-    } else if (
-      "gifts" in container ||
-      "items" in container ||
-      "wishlist" in container ||
-      "wishlistItems" in container
-    ) {
-      return [];
-    } else {
-      return null;
-    }
-  } else {
-    return null;
-  }
-
-  const list = Array.isArray(source) ? source : [];
-  return list
-    .map((item) => sanitizeWishlistItem(item))
-    .filter((item): item is WishlistItem => item !== null);
-}
-
-export { extractWishlistItems };
-
 export default function SpaceWishlist() {
   const { space } = useOutletContext<SpaceOutletContext>();
   const location = useLocation();
   const navigate = useNavigate();
+  const identity = getUserIdentity();
   const { showToast } = useToast();
+
   const [items, setItems] = useState<WishlistItem[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [loadError, setLoadError] = useState("");
@@ -190,6 +89,10 @@ export default function SpaceWishlist() {
   const [formError, setFormError] = useState("");
   const [fetchingDetails, setFetchingDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("mine");
+  const [viewMode, setViewMode] = useState<ViewOption>("grid");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<WishlistItem | null>(null);
 
   const isValueMode = useMemo(() => {
     const mode = (space.mode ?? "price").toLowerCase();
@@ -206,6 +109,13 @@ export default function SpaceWishlist() {
         return b.id - a.id;
       });
   }, [items]);
+
+  const partnerItems = useMemo(() => {
+    return sortedItems.filter((item) => {
+      const giverId = item.gift?.giverId;
+      return typeof giverId === "string" && giverId !== identity.id;
+    });
+  }, [identity.id, sortedItems]);
 
   const derivedPointsFromPrice = useMemo(() => {
     if (isValueMode) {
@@ -250,6 +160,23 @@ export default function SpaceWishlist() {
     return Math.trunc(parsed);
   }, [formState.points]);
 
+  const resetFormState = useCallback(() => {
+    setFormState(() => ({ ...INITIAL_FORM }));
+    setParseError("");
+    setManualEntryNotice("");
+    setFormError("");
+    setAllowEditDetails(false);
+    setIsManualEntry(false);
+    setFlowStep("link");
+    setFetchingDetails(false);
+    setEditingItem(null);
+  }, []);
+
+  const openCreateForm = useCallback(() => {
+    resetFormState();
+    setFlowStep("link");
+  }, [resetFormState]);
+
   const loadWishlist = useCallback(async () => {
     setLoadState((previous) => (previous === "ready" ? previous : "loading"));
     setLoadError("");
@@ -288,36 +215,42 @@ export default function SpaceWishlist() {
   useEffect(() => {
     const state = location.state as { openNewItem?: boolean } | null;
     if (state?.openNewItem) {
+      openCreateForm();
       setFormOpen(true);
-      setFlowStep("link");
-      setIsManualEntry(false);
-      setAllowEditDetails(false);
-      setFormState(() => ({ ...INITIAL_FORM }));
       navigate(location.pathname, { replace: true });
     }
-  }, [location, navigate]);
-
-  function resetFormState() {
-    setFormState(() => ({ ...INITIAL_FORM }));
-    setParseError("");
-    setManualEntryNotice("");
-    setFormError("");
-    setAllowEditDetails(false);
-    setIsManualEntry(false);
-    setFlowStep("link");
-    setFetchingDetails(false);
-  }
+  }, [location, navigate, openCreateForm]);
 
   function handleToggleForm() {
     setFormOpen((previous) => {
       const next = !previous;
       if (next) {
-        resetFormState();
+        openCreateForm();
       } else {
         resetFormState();
       }
       return next;
     });
+  }
+
+  function handleEdit(item: WishlistItem) {
+    setFormOpen(true);
+    setFlowStep("details");
+    setIsManualEntry(true);
+    setAllowEditDetails(true);
+    setEditingItem(item);
+    setFormState({
+      url: item.url ?? "",
+      title: item.title,
+      price: item.priceCents ? (item.priceCents / 100).toFixed(2) : "",
+      imageUrl: item.image ?? "",
+      notes: item.notes ?? "",
+      points: String(resolveItemPoints(item) || ""),
+      currency: "",
+    });
+    setManualEntryNotice("Editing item");
+    setFormError("");
+    setParseError("");
   }
 
   function handleManualEntry() {
@@ -357,10 +290,7 @@ export default function SpaceWishlist() {
       setFormState((previous) => ({
         ...previous,
         title: payload.title ?? previous.title,
-        price:
-          typeof payload.price === "number"
-            ? payload.price.toFixed(2)
-            : previous.price,
+        price: typeof payload.price === "number" ? payload.price.toFixed(2) : previous.price,
         imageUrl: payload.imageUrl ?? previous.imageUrl,
         currency:
           typeof payload.currency === "string" && payload.currency.trim()
@@ -463,24 +393,43 @@ export default function SpaceWishlist() {
     setSubmitting(true);
 
     try {
-      const response = await apiFetch(`/spaces/${space.id}/gifts`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      if (editingItem) {
+        const response = await apiFetch(`/wishlist/${editingItem.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body || typeof body !== "object") {
+          const message =
+            body && typeof (body as { message?: string }).message === "string"
+              ? (body as { message: string }).message
+              : "Unable to update item.";
+          throw new Error(message);
+        }
+        const updated = (body as { wishlistItem?: WishlistItem }).wishlistItem ?? (body as WishlistItem);
+        setItems((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
+        showToast({ intent: "success", description: "Wishlist item updated." });
+      } else {
+        const response = await apiFetch(`/spaces/${space.id}/gifts`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
 
-      const body = await response.json().catch(() => null);
+        const body = await response.json().catch(() => null);
 
-      if (!response.ok || !body || typeof body !== "object") {
-        const message =
-          body && typeof (body as { message?: string }).message === "string"
-            ? (body as { message: string }).message
-            : "Unable to save item.";
-        throw new Error(message);
+        if (!response.ok || !body || typeof body !== "object") {
+          const message =
+            body && typeof (body as { message?: string }).message === "string"
+              ? (body as { message: string }).message
+              : "Unable to save item.";
+          throw new Error(message);
+        }
+
+        const created = (body as { wishlistItem?: WishlistItem }).wishlistItem ?? (body as WishlistItem);
+        setItems((previous) => [created, ...previous]);
+        showToast({ intent: "success", description: "Wishlist item saved." });
       }
 
-      const created = (body as { wishlistItem?: WishlistItem }).wishlistItem ?? (body as WishlistItem);
-      setItems((previous) => [created, ...previous]);
-      showToast({ intent: "success", description: "Wishlist item saved." });
       resetFormState();
       setFormOpen(false);
     } catch (error) {
@@ -492,24 +441,70 @@ export default function SpaceWishlist() {
     }
   }
 
+  const displayItems = activeTab === "mine" ? sortedItems : partnerItems;
+  const hasItems = displayItems.length > 0;
+  const showPagination = hasItems;
+
   return (
-    <div className="space-wishlist" aria-labelledby="space-wishlist-title">
-      <PageHeader
-        eyebrow="Wishlist"
-        title={`Shared ideas for ${space.name}`}
-        titleId="space-wishlist-title"
-        description="Paste a link, let GiftLink fetch the details, then fine-tune it together."
-        actions={
-          <Button type="button" onClick={handleToggleForm}>
-            {formOpen ? "Close form" : "Add item"}
-          </Button>
-        }
-      />
+    <div className={`ui-refresh-wishlist ${styles.page}`} aria-labelledby="space-wishlist-title">
+      <header className={styles.header}>
+        <p className={styles.eyebrow}>Wishlist</p>
+        <div className={styles.titleRow}>
+          <h1 id="space-wishlist-title" className={styles.title}>
+            Shared ideas for {space.name}
+          </h1>
+          {activeTab === "mine" ? (
+            <Button type="button" onClick={handleToggleForm}>
+              {formOpen ? "Close" : "New"}
+            </Button>
+          ) : null}
+        </div>
+        <nav className={styles.tabs} aria-label="Wishlist lists">
+          <button
+            type="button"
+            className={[styles.tabButton, activeTab === "mine" ? styles.tabActive : undefined]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => setActiveTab("mine")}
+            aria-pressed={activeTab === "mine"}
+          >
+            My list
+          </button>
+          <button
+            type="button"
+            className={[styles.tabButton, activeTab === "partners" ? styles.tabActive : undefined]
+              .filter(Boolean)
+              .join(" ")}
+            onClick={() => setActiveTab("partners")}
+            aria-pressed={activeTab === "partners"}
+          >
+            Partners list
+          </button>
+        </nav>
+      </header>
+
+      <Toolbar className={styles.toolbar}>
+        {activeTab === "mine" ? null : <div className={styles.toolbarSpacer} />}
+        <button type="button" className={styles.filterButton} onClick={() => setFiltersOpen((previous) => !previous)}>
+          Filter
+        </button>
+        <ViewToggle value={viewMode} onChange={setViewMode} />
+      </Toolbar>
+
+      {filtersOpen ? (
+        <div className={styles.filterPanel} role="status">
+          <p>No filters yet. Stay tuned!</p>
+        </div>
+      ) : null}
 
       {formOpen ? (
-        <form className="space-wishlist__form" onSubmit={handleSubmit} noValidate>
+        <form className={styles.form} onSubmit={handleSubmit} noValidate>
           {flowStep === "link" ? (
-            <div className="space-wishlist__step space-wishlist__step--link">
+            <div className={styles.linkStep}>
+              <div className={styles.stepHeader}>
+                <h2 className={styles.stepTitle}>Paste a link</h2>
+                <p className={styles.stepHint}>We’ll pull details so you can fine-tune before sharing.</p>
+              </div>
               <FormField htmlFor="wishlist-link" label="Amazon link" required>
                 <Input
                   id="wishlist-link"
@@ -523,38 +518,34 @@ export default function SpaceWishlist() {
               </FormField>
 
               {parseError ? (
-                <p className="space-wishlist__status space-wishlist__status--error" role="alert">
+                <p className={styles.formStatus} role="alert">
                   {parseError}
                 </p>
               ) : null}
 
-              <div className="space-wishlist__step-actions">
+              <div className={styles.stepActions}>
                 <Button type="button" onClick={() => void handleFetchDetails()} disabled={fetchingDetails}>
                   {fetchingDetails ? "Fetching…" : "Fetch details"}
                 </Button>
-                <button
-                  type="button"
-                  className="space-wishlist__text-action"
-                  onClick={handleManualEntry}
-                  disabled={fetchingDetails}
-                >
+                <button type="button" className={styles.textAction} onClick={handleManualEntry} disabled={fetchingDetails}>
                   Enter details manually
                 </button>
               </div>
             </div>
           ) : (
-            <div className="space-wishlist__step space-wishlist__step--details">
-              <div className="space-wishlist__step-header">
-                <p className="space-wishlist__step-title">Preview &amp; fine-tune</p>
-                <div className="space-wishlist__step-controls">
+            <div className={styles.detailsStep}>
+              <div className={styles.stepHeader}>
+                <h2 className={styles.stepTitle}>Preview &amp; fine-tune</h2>
+                <div className={styles.stepControls}>
                   <button
                     type="button"
-                    className="space-wishlist__text-action"
+                    className={styles.textAction}
                     onClick={() => {
                       setFlowStep("link");
                       setAllowEditDetails(false);
                       setIsManualEntry(false);
                       setFormError("");
+                      setEditingItem(null);
                     }}
                     disabled={submitting}
                   >
@@ -563,7 +554,7 @@ export default function SpaceWishlist() {
                   {!isManualEntry ? (
                     <button
                       type="button"
-                      className="space-wishlist__text-action"
+                      className={styles.textAction}
                       onClick={() => setAllowEditDetails((previous) => !previous)}
                       disabled={submitting}
                     >
@@ -574,13 +565,11 @@ export default function SpaceWishlist() {
               </div>
 
               {manualEntryNotice ? (
-                <p className="space-wishlist__status space-wishlist__status--info" role="status">
-                  {manualEntryNotice}
-                </p>
+                <p className={styles.notice}>{manualEntryNotice}</p>
               ) : null}
 
-              <div className="space-wishlist__details-grid">
-                <div className="space-wishlist__details-main">
+              <div className={styles.detailsGrid}>
+                <div className={styles.formFields}>
                   <FormField htmlFor="wishlist-title" label="Title" required>
                     <Input
                       id="wishlist-title"
@@ -589,11 +578,10 @@ export default function SpaceWishlist() {
                       placeholder="Example: Ceramic pour-over kettle"
                       readOnly={!allowEditDetails && !isManualEntry}
                       disabled={submitting}
-                      className={!allowEditDetails && !isManualEntry ? "space-wishlist__input--readonly" : ""}
                     />
                   </FormField>
 
-                  <div className="space-wishlist__detail-row">
+                  <div className={styles.row}>
                     <FormField
                       htmlFor="wishlist-price"
                       label="Price"
@@ -608,7 +596,6 @@ export default function SpaceWishlist() {
                         inputMode="decimal"
                         readOnly={!allowEditDetails && !isManualEntry}
                         disabled={submitting}
-                        className={!allowEditDetails && !isManualEntry ? "space-wishlist__input--readonly" : ""}
                       />
                     </FormField>
 
@@ -621,13 +608,12 @@ export default function SpaceWishlist() {
                         inputMode="url"
                         readOnly={!allowEditDetails && !isManualEntry}
                         disabled={submitting}
-                        className={!allowEditDetails && !isManualEntry ? "space-wishlist__input--readonly" : ""}
                       />
                     </FormField>
                   </div>
 
                   {isValueMode ? (
-                    <div className="space-wishlist__points-row">
+                    <div className={styles.row}>
                       <FormField htmlFor="wishlist-points" label="Points" required hint="Whole numbers only">
                         <Input
                           id="wishlist-points"
@@ -638,35 +624,29 @@ export default function SpaceWishlist() {
                           disabled={submitting}
                         />
                       </FormField>
-                      <PointsBadge
-                        className="space-wishlist__points-badge"
-                        label={`${liveValueModePoints} pts`}
-                        ariaLabel={`Current points value ${liveValueModePoints} points`}
-                      />
+                      <div className={styles.pointsPreview} aria-live="polite">
+                        <span className={styles.pointsPill}>{liveValueModePoints} pts</span>
+                        <p className={styles.pointsCaption}>Current point value</p>
+                      </div>
                     </div>
                   ) : (
-                    <div className="space-wishlist__points-summary" aria-live="polite">
+                    <div className={styles.pointsSummary} aria-live="polite">
                       {derivedPointsFromPrice !== null ? (
-                        <PointsBadge
-                          className="space-wishlist__points-badge"
-                          label={`Worth ${derivedPointsFromPrice} pts`}
-                          ariaLabel={`Worth ${derivedPointsFromPrice} points`}
-                        />
+                        <span className={styles.pointsPill}>Worth {derivedPointsFromPrice} pts</span>
                       ) : (
-                        <p className="space-wishlist__points-placeholder">Enter a price to estimate points.</p>
+                        <p className={styles.pointsPlaceholder}>Enter a price to estimate points.</p>
                       )}
-                      <p className="space-wishlist__points-caption">Points based on price.</p>
+                      <p className={styles.pointsCaption}>Points based on price.</p>
                     </div>
                   )}
 
-                  <div className="space-wishlist__notes">
-                    <label className="space-wishlist__notes-label" htmlFor="wishlist-notes">
-                      Notes
-                      <span className="space-wishlist__notes-hint">Optional</span>
+                  <div className={styles.notesField}>
+                    <label className={styles.notesLabel} htmlFor="wishlist-notes">
+                      Notes <span className={styles.optional}>Optional</span>
                     </label>
                     <textarea
                       id="wishlist-notes"
-                      className="space-wishlist__textarea"
+                      className={styles.textarea}
                       value={formState.notes}
                       onChange={(event) => setFormState((previous) => ({ ...previous, notes: event.target.value }))}
                       placeholder="Sizing, delivery timing, or why it matters."
@@ -675,17 +655,15 @@ export default function SpaceWishlist() {
                   </div>
                 </div>
 
-                <aside className="space-wishlist__preview">
+                <aside className={styles.previewPane}>
                   {formState.imageUrl ? (
-                    <div className="space-wishlist__preview-image">
+                    <div className={styles.previewImage}>
                       <img src={formState.imageUrl} alt={formState.title || "Gift preview"} />
                     </div>
                   ) : (
-                    <div className="space-wishlist__preview-placeholder" aria-hidden="true">
-                      No image yet
-                    </div>
+                    <div className={styles.previewPlaceholder}>No image yet</div>
                   )}
-                  <dl className="space-wishlist__preview-meta">
+                  <dl className={styles.previewMeta}>
                     <div>
                       <dt>Title</dt>
                       <dd>{formState.title || "—"}</dd>
@@ -697,23 +675,9 @@ export default function SpaceWishlist() {
                     <div>
                       <dt>Points</dt>
                       <dd>
-                        <div className="space-wishlist__preview-points">
-                          {isValueMode ? (
-                            <PointsBadge
-                              className="space-wishlist__points-badge"
-                              label={`${liveValueModePoints} pts`}
-                              ariaLabel={`Current points value ${liveValueModePoints} points`}
-                            />
-                          ) : derivedPointsFromPrice !== null ? (
-                            <PointsBadge
-                              className="space-wishlist__points-badge"
-                              label={`Worth ${derivedPointsFromPrice} pts`}
-                              ariaLabel={`Worth ${derivedPointsFromPrice} points`}
-                            />
-                          ) : (
-                            <span className="space-wishlist__points-placeholder">Enter a valid price</span>
-                          )}
-                        </div>
+                        <span className={styles.pointsPill}>
+                          {isValueMode ? `${liveValueModePoints} pts` : derivedPointsFromPrice ?? "—"}
+                        </span>
                       </dd>
                     </div>
                   </dl>
@@ -721,14 +685,14 @@ export default function SpaceWishlist() {
               </div>
 
               {formError ? (
-                <p className="space-wishlist__status space-wishlist__status--error" role="alert">
+                <p className={styles.formStatus} role="alert">
                   {formError}
                 </p>
               ) : null}
 
-              <div className="space-wishlist__form-actions">
+              <div className={styles.formActions}>
                 <Button type="submit" disabled={submitting}>
-                  {submitting ? "Saving…" : "Save item"}
+                  {submitting ? "Saving…" : editingItem ? "Update item" : "Save item"}
                 </Button>
               </div>
             </div>
@@ -736,22 +700,25 @@ export default function SpaceWishlist() {
         </form>
       ) : null}
 
-      <section className="space-wishlist__list" aria-live="polite">
-        {loadState === "loading" ? <p className="space-wishlist__loading">Loading wishlist…</p> : null}
+      <section className={styles.listSection} aria-live="polite">
+        {loadState === "loading" ? <p className={styles.status}>Loading wishlist…</p> : null}
         {loadState === "error" ? (
-          <div className="space-wishlist__error">
+          <div className={styles.errorState}>
             <p>{loadError}</p>
             <Button type="button" variant="secondary" onClick={() => void loadWishlist()}>
               Retry
             </Button>
           </div>
         ) : null}
-        {loadState === "ready" && sortedItems.length === 0 ? (
-          <p className="space-wishlist__empty">No items yet. Paste your first link to begin.</p>
+        {loadState === "ready" && !hasItems ? (
+          <p className={styles.emptyState}>
+            {activeTab === "mine" ? "No items yet. Add your first idea." : "No partner items yet."}
+          </p>
         ) : null}
-        {loadState === "ready" && sortedItems.length > 0 ? (
-          <div className="space-wishlist__grid">
-            {sortedItems.map((item) => {
+
+        {loadState === "ready" && hasItems ? (
+          <div className={viewMode === "grid" ? styles.cardGrid : styles.listView}>
+            {displayItems.map((item) => {
               const points = resolveItemPoints(item);
               const priceText = formatCurrencyFromCents(item.priceCents);
               const priceLabel = priceText !== "—" ? priceText : null;
@@ -763,22 +730,61 @@ export default function SpaceWishlist() {
                 metaParts.push(`Added ${formatDate(item.createdAt)}`);
               }
 
+              if (viewMode === "grid") {
+                return (
+                  <WishlistCard
+                    key={item.id}
+                    title={item.title}
+                    imageUrl={item.image ?? null}
+                    priceLabel={priceLabel}
+                    pointsLabel={`${points} pts`}
+                    notes={item.notes ?? undefined}
+                    meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
+                    actionLabel={activeTab === "mine" ? "Edit" : "View"}
+                    onAction={activeTab === "mine" ? () => handleEdit(item) : undefined}
+                    href={activeTab === "partners" ? item.url ?? undefined : undefined}
+                    actionType={activeTab === "partners" ? "link" : "button"}
+                  />
+                );
+              }
+
               return (
-                <GiftCard
-                  key={item.id}
-                  title={item.title}
-                  image={item.image ?? null}
-                  priceLabel={priceLabel}
-                  pointsLabel={`${points} pts`}
-                  notes={item.notes ?? undefined}
-                  meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
-                  viewHref={item.url ?? null}
-                />
+                <article key={item.id} className={styles.listRow}>
+                  <div className={styles.listMeta}>
+                    <h3 className={styles.listTitle}>{item.title}</h3>
+                    {metaParts.length > 0 ? <p className={styles.listInfo}>{metaParts.join(" • ")}</p> : null}
+                  </div>
+                  <div className={styles.listPoints}>{points} pts</div>
+                  <div className={styles.listPrice}>{priceLabel ?? "—"}</div>
+                  <div className={styles.listAction}>
+                    {activeTab === "mine" ? (
+                      <button type="button" className={styles.inlineAction} onClick={() => handleEdit(item)}>
+                        Edit
+                      </button>
+                    ) : item.url ? (
+                      <a className={styles.inlineLink} href={item.url} target="_blank" rel="noreferrer">
+                        View
+                      </a>
+                    ) : (
+                      <span className={styles.inlineAction} aria-disabled="true">
+                        View
+                      </span>
+                    )}
+                  </div>
+                </article>
               );
             })}
           </div>
         ) : null}
       </section>
+
+      {showPagination ? (
+        <nav className={styles.pagination} aria-label="Wishlist pagination">
+          <button type="button" className={[styles.pageButton, styles.pageButtonActive].join(" ")} disabled>
+            1
+          </button>
+        </nav>
+      ) : null}
     </div>
   );
 }
