@@ -1684,6 +1684,7 @@ function mapWishlistItem(item) {
     notes: item.notes,
     priority: item.priority,
     archived: item.archived,
+    archivedAt: serializeDate(item.archivedAt),
     createdAt: serializeDate(item.createdAt),
     updatedAt: serializeDate(item.updatedAt),
     gift: mapGift(item.gift ?? null),
@@ -2202,6 +2203,7 @@ app.patch("/wishlist/:id", async (req, res) => {
       return sendJsonError(res, 400, "archived must be a boolean.", ERROR_CODES.BAD_REQUEST);
     }
     updates.archived = archivedResult.value;
+    updates.archivedAt = archivedResult.value ? new Date() : null;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -2221,6 +2223,102 @@ app.patch("/wishlist/:id", async (req, res) => {
     }
     req.log.error({ err: error }, "Failed to update wishlist item");
     return sendJsonError(res, 500, "Failed to update wishlist item.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.post("/wishlist/bulk-archive", async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
+  }
+
+  const rawIds = Array.isArray(req.body.ids) ? req.body.ids : null;
+  if (!rawIds || rawIds.length === 0) {
+    return sendJsonError(
+      res,
+      400,
+      "ids must be a non-empty array of up to 200 positive integers.",
+      ERROR_CODES.BAD_REQUEST,
+    );
+  }
+
+  const parsedIds = [];
+  for (const value of rawIds) {
+    if (typeof value === "number") {
+      if (!Number.isInteger(value) || value <= 0) {
+        return sendJsonError(
+          res,
+          400,
+          "ids must contain only positive integers.",
+          ERROR_CODES.BAD_REQUEST,
+        );
+      }
+      parsedIds.push(value);
+      continue;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!/^[0-9]+$/.test(trimmed)) {
+        return sendJsonError(
+          res,
+          400,
+          "ids must contain only positive integers.",
+          ERROR_CODES.BAD_REQUEST,
+        );
+      }
+      const numeric = Number.parseInt(trimmed, 10);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return sendJsonError(
+          res,
+          400,
+          "ids must contain only positive integers.",
+          ERROR_CODES.BAD_REQUEST,
+        );
+      }
+      parsedIds.push(numeric);
+      continue;
+    }
+
+    return sendJsonError(
+      res,
+      400,
+      "ids must contain only positive integers.",
+      ERROR_CODES.BAD_REQUEST,
+    );
+  }
+
+  const uniqueIds = Array.from(new Set(parsedIds));
+  if (uniqueIds.length === 0 || uniqueIds.length > 200) {
+    return sendJsonError(
+      res,
+      400,
+      "ids must be a non-empty array of up to 200 positive integers.",
+      ERROR_CODES.BAD_REQUEST,
+    );
+  }
+
+  try {
+    const existing = await prisma.wishlistItem.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    });
+
+    const existingIds = new Set(existing.map((item) => item.id));
+    const notFound = uniqueIds.filter((id) => !existingIds.has(id));
+
+    const result = await prisma.wishlistItem.updateMany({
+      where: { id: { in: uniqueIds }, archived: false },
+      data: { archived: true, archivedAt: new Date() },
+    });
+
+    return res.status(200).send({
+      updatedCount: result.count,
+      ids: uniqueIds,
+      notFound,
+    });
+  } catch (error) {
+    req.log?.error?.({ err: error, ids: uniqueIds }, "Failed to bulk archive wishlist items");
+    return sendJsonError(res, 500, "Failed to archive wishlist items.", ERROR_CODES.INTERNAL);
   }
 });
 

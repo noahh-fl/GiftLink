@@ -95,10 +95,20 @@ export default function SpaceWishlist() {
   const [editingItem, setEditingItem] = useState<WishlistItem | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WishlistItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
   const deleteCancelRef = useRef<HTMLButtonElement | null>(null);
   const deleteButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const lastDeleteTriggerId = useRef<number | null>(null);
   const listSectionRef = useRef<HTMLElement | null>(null);
+  const archiveCancelRef = useRef<HTMLButtonElement | null>(null);
+  const archiveConfirmRef = useRef<HTMLButtonElement | null>(null);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setConfirmArchiveOpen(false);
+  }, []);
 
   const isValueMode = useMemo(() => {
     const mode = (space.mode ?? "price").toLowerCase();
@@ -118,6 +128,9 @@ export default function SpaceWishlist() {
 
   const partnerItems = useMemo(() => {
     return sortedItems.filter((item) => {
+      if (item.archived) {
+        return false;
+      }
       const giverId = item.gift?.giverId;
       return typeof giverId === "string" && giverId !== identity.id;
     });
@@ -219,6 +232,28 @@ export default function SpaceWishlist() {
   }, [loadWishlist]);
 
   useEffect(() => {
+    setSelectedIds((previous) => {
+      if (previous.size === 0) {
+        return previous;
+      }
+
+      const validIds = new Set(items.map((item) => item.id));
+      let changed = false;
+      const next = new Set<number>();
+
+      previous.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+
+      return changed ? next : previous;
+    });
+  }, [items]);
+
+  useEffect(() => {
     const state = location.state as { openNewItem?: boolean } | null;
     if (state?.openNewItem) {
       openCreateForm();
@@ -270,6 +305,79 @@ export default function SpaceWishlist() {
       lastDeleteTriggerId.current = null;
     }
   }, [pendingDelete]);
+
+  useEffect(() => {
+    if (activeTab !== "mine") {
+      clearSelection();
+    }
+  }, [activeTab, clearSelection]);
+
+  useEffect(() => {
+    if (selectedIds.size === 0 && !confirmArchiveOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearSelection();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedIds, confirmArchiveOpen, clearSelection]);
+
+  useEffect(() => {
+    if (!confirmArchiveOpen) {
+      return;
+    }
+
+    const focusable = [archiveCancelRef.current, archiveConfirmRef.current].filter(
+      (node): node is HTMLButtonElement => Boolean(node),
+    );
+
+    const frame = window.requestAnimationFrame(() => {
+      archiveCancelRef.current?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || focusable.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (focusable.length === 1) {
+        focusable[0]?.focus();
+        return;
+      }
+
+      const activeElement = document.activeElement as HTMLElement | null;
+      const currentIndex = activeElement ? focusable.indexOf(activeElement as HTMLButtonElement) : -1;
+      if (event.shiftKey) {
+        const previousIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+        focusable[previousIndex]?.focus();
+      } else {
+        const nextIndex = currentIndex === focusable.length - 1 ? 0 : currentIndex + 1;
+        focusable[nextIndex]?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [confirmArchiveOpen]);
+
+  useEffect(() => {
+    if (confirmArchiveOpen && selectedIds.size === 0) {
+      setConfirmArchiveOpen(false);
+    }
+  }, [confirmArchiveOpen, selectedIds]);
 
   function handleToggleForm() {
     setFormOpen((previous) => {
@@ -369,6 +477,91 @@ export default function SpaceWishlist() {
       setDeleteLoading(false);
     }
   }, [pendingDelete, setItems, showToast]);
+
+  const handleToggleSelection = useCallback((id: number) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleCancelArchive = useCallback(() => {
+    if (archiveLoading) {
+      return;
+    }
+    setConfirmArchiveOpen(false);
+  }, [archiveLoading]);
+
+  const handleArchiveOverlayClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (event.target === event.currentTarget && !archiveLoading) {
+        setConfirmArchiveOpen(false);
+      }
+    },
+    [archiveLoading],
+  );
+
+  const handleArchiveSelected = useCallback(async () => {
+    if (selectedIds.size === 0 || archiveLoading) {
+      return;
+    }
+
+    const ids = Array.from(selectedIds);
+    const idsSet = new Set(ids);
+    const timestamp = new Date().toISOString();
+    const previousItems = items;
+
+    setArchiveLoading(true);
+    setItems((previous) =>
+      previous
+        .map((item) =>
+          idsSet.has(item.id) ? { ...item, archived: true, archivedAt: timestamp } : item,
+        )
+        .filter((item) => !idsSet.has(item.id)),
+    );
+
+    try {
+      const response = await apiFetch(`/wishlist/bulk-archive`, {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok || !body || typeof body !== "object") {
+        const message =
+          body && typeof (body as { message?: string }).message === "string"
+            ? (body as { message: string }).message
+            : "Unable to archive items.";
+        throw new Error(message);
+      }
+
+      const payload = body as { updatedCount?: unknown; notFound?: unknown };
+      const updatedCount =
+        typeof payload.updatedCount === "number" && Number.isFinite(payload.updatedCount)
+          ? payload.updatedCount
+          : ids.length;
+      const missingCount = Array.isArray(payload.notFound) ? payload.notFound.length : 0;
+      const archivedLabel = updatedCount === 1 ? "item" : "items";
+      const description =
+        missingCount > 0
+          ? `Archived ${updatedCount} ${archivedLabel}. ${missingCount} already handled.`
+          : `Archived ${updatedCount} ${archivedLabel}.`;
+      showToast({ intent: "success", description });
+      clearSelection();
+    } catch (error) {
+      setItems(previousItems);
+      const message = error instanceof Error && error.message ? error.message : "Unable to archive items.";
+      showToast({ intent: "error", description: message });
+      setConfirmArchiveOpen(false);
+    } finally {
+      setArchiveLoading(false);
+    }
+  }, [archiveLoading, clearSelection, items, selectedIds, showToast]);
 
   async function handleFetchDetails() {
     const trimmedUrl = formState.url.trim();
@@ -550,10 +743,16 @@ export default function SpaceWishlist() {
     }
   }
 
-  const displayItems = activeTab === "mine" ? sortedItems : partnerItems;
+  const activeItems = useMemo(() => {
+    return sortedItems.filter((item) => !item.archived);
+  }, [sortedItems]);
+
+  const displayItems = activeTab === "mine" ? activeItems : partnerItems;
   const hasItems = displayItems.length > 0;
   const showPagination = hasItems;
-  const isMyList = activeTab === "mine";
+  const selectionEnabled = activeTab === "mine";
+  const isSelectionMode = selectionEnabled && selectedIds.size > 0;
+  const selectedCount = selectedIds.size;
 
   return (
     <div className={`ui-refresh-wishlist ${styles.page}`} aria-labelledby="space-wishlist-title">
@@ -845,66 +1044,114 @@ export default function SpaceWishlist() {
                 metaParts.push(`Added ${formatDate(item.createdAt)}`);
               }
 
-              const isOwnerView = isMyList;
+              const isOwnerView = selectionEnabled;
+              const isSelected = selectedIds.has(item.id);
+              const deleteDisabled =
+                isOwnerView && (archiveLoading || (pendingDelete?.id === item.id ? deleteLoading : false));
+              const selectionControl = selectionEnabled ? (
+                <label
+                  className={[styles.selectionCheckboxLabel, isSelected ? styles.selectionCheckboxLabelSelected : undefined]
+                    .filter(Boolean)
+                    .join(" ")}
+                  data-selected={isSelected ? "true" : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    className={styles.selectionCheckbox}
+                    checked={isSelected}
+                    onChange={() => handleToggleSelection(item.id)}
+                    disabled={archiveLoading}
+                  />
+                  <span className="sr-only">Select {item.title}</span>
+                </label>
+              ) : null;
 
               if (viewMode === "grid") {
                 return (
-                  <WishlistCard
+                  <div
                     key={item.id}
-                    title={item.title}
-                    imageUrl={item.image ?? null}
-                    priceLabel={priceLabel}
-                    pointsLabel={`${points} pts`}
-                    notes={item.notes ?? undefined}
-                    meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
-                    actionLabel={isOwnerView ? "Edit" : "View"}
-                    onAction={isOwnerView ? () => handleEdit(item) : undefined}
-                    href={!isOwnerView ? item.url ?? undefined : undefined}
-                    actionType={!isOwnerView ? "link" : "button"}
-                    deleteLabel={`Delete ${item.title}`}
-                    onDelete={isOwnerView ? () => handleRequestDelete(item) : undefined}
-                    deleteButtonRef={isOwnerView ? (node) => setDeleteButtonNode(item.id, node) : undefined}
-                    deleteDisabled={isOwnerView && pendingDelete?.id === item.id ? deleteLoading : false}
-                  />
+                    className={[
+                      styles.selectionItem,
+                      styles.gridSelectionItem,
+                      isSelected ? styles.selectionItemSelected : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    {selectionControl}
+                    <WishlistCard
+                      title={item.title}
+                      imageUrl={item.image ?? null}
+                      priceLabel={priceLabel}
+                      pointsLabel={`${points} pts`}
+                      notes={item.notes ?? undefined}
+                      meta={metaParts.length > 0 ? metaParts.join(" • ") : null}
+                      actionLabel={isOwnerView ? "Edit" : "View"}
+                      onAction={isOwnerView ? () => handleEdit(item) : undefined}
+                      href={!isOwnerView ? item.url ?? undefined : undefined}
+                      actionType={!isOwnerView ? "link" : "button"}
+                      deleteLabel={`Delete ${item.title}`}
+                      onDelete={isOwnerView ? () => handleRequestDelete(item) : undefined}
+                      deleteButtonRef={isOwnerView ? (node) => setDeleteButtonNode(item.id, node) : undefined}
+                      deleteDisabled={deleteDisabled}
+                      selected={isSelected}
+                    />
+                  </div>
                 );
               }
 
               return (
-                <article key={item.id} className={styles.listRow}>
-                  <div className={styles.listMeta}>
-                    <h3 className={styles.listTitle}>{item.title}</h3>
-                    {metaParts.length > 0 ? <p className={styles.listInfo}>{metaParts.join(" • ")}</p> : null}
-                  </div>
-                  <div className={styles.listPoints}>{points} pts</div>
-                  <div className={styles.listPrice}>{priceLabel ?? "—"}</div>
-                  <div className={styles.listAction}>
-                    {isOwnerView ? (
-                      <div className={styles.listActionGroup}>
-                        <button type="button" className={styles.inlineAction} onClick={() => handleEdit(item)}>
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.deleteButton}
-                          onClick={() => handleRequestDelete(item)}
-                          ref={(node) => setDeleteButtonNode(item.id, node)}
-                          aria-label={`Delete ${item.title}`}
-                          disabled={pendingDelete?.id === item.id && deleteLoading}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ) : item.url ? (
-                      <a className={styles.inlineLink} href={item.url} target="_blank" rel="noreferrer">
-                        View
-                      </a>
-                    ) : (
-                      <span className={styles.inlineAction} aria-disabled="true">
-                        View
-                      </span>
-                    )}
-                  </div>
-                </article>
+                <div
+                  key={item.id}
+                  className={[
+                    styles.selectionItem,
+                    styles.listSelectionItem,
+                    isSelected ? styles.selectionItemSelected : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {selectionControl}
+                  <article
+                    className={[styles.listRow, isSelected ? styles.listRowSelected : undefined]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <div className={styles.listMeta}>
+                      <h3 className={styles.listTitle}>{item.title}</h3>
+                      {metaParts.length > 0 ? <p className={styles.listInfo}>{metaParts.join(" • ")}</p> : null}
+                    </div>
+                    <div className={styles.listPoints}>{points} pts</div>
+                    <div className={styles.listPrice}>{priceLabel ?? "—"}</div>
+                    <div className={styles.listAction}>
+                      {isOwnerView ? (
+                        <div className={styles.listActionGroup}>
+                          <button type="button" className={styles.inlineAction} onClick={() => handleEdit(item)}>
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.deleteButton}
+                            onClick={() => handleRequestDelete(item)}
+                            ref={(node) => setDeleteButtonNode(item.id, node)}
+                            aria-label={`Delete ${item.title}`}
+                            disabled={deleteDisabled}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ) : item.url ? (
+                        <a className={styles.inlineLink} href={item.url} target="_blank" rel="noreferrer">
+                          View
+                        </a>
+                      ) : (
+                        <span className={styles.inlineAction} aria-disabled="true">
+                          View
+                        </span>
+                      )}
+                    </div>
+                  </article>
+                </div>
               );
             })}
           </div>
@@ -917,6 +1164,69 @@ export default function SpaceWishlist() {
             1
           </button>
         </nav>
+      ) : null}
+
+      {selectionEnabled && isSelectionMode ? (
+        <div
+          className={styles.selectionToolbar}
+          role="region"
+          aria-live="polite"
+          aria-label={`Bulk actions for ${selectedCount} selected ${selectedCount === 1 ? "item" : "items"}`}
+        >
+          <span className={styles.selectionCount}>Selected ({selectedCount})</span>
+          <div className={styles.selectionActions}>
+            <Button type="button" variant="secondary" onClick={clearSelection} disabled={archiveLoading}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setConfirmArchiveOpen(true)}
+              disabled={archiveLoading || selectedCount === 0}
+            >
+              {archiveLoading ? "Archiving…" : "Archive selected"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmArchiveOpen ? (
+        <div className={styles.archiveOverlay} role="presentation" onClick={handleArchiveOverlayClick}>
+          <div
+            className={styles.archiveDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-dialog-title"
+            aria-describedby="archive-dialog-description"
+            aria-busy={archiveLoading ? "true" : undefined}
+          >
+            <h2 id="archive-dialog-title" className={styles.archiveDialogTitle}>
+              Archive {selectedCount} {selectedCount === 1 ? "item" : "items"}?
+            </h2>
+            <p id="archive-dialog-description" className={styles.archiveDialogBody}>
+              They’ll move out of your active list.
+            </p>
+            <div className={styles.archiveActions}>
+              <button
+                type="button"
+                className={[styles.dialogButton, styles.dialogButtonSecondary].join(" ")}
+                onClick={handleCancelArchive}
+                ref={archiveCancelRef}
+                disabled={archiveLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={[styles.dialogButton, styles.dialogButtonPrimary].join(" ")}
+                onClick={() => void handleArchiveSelected()}
+                ref={archiveConfirmRef}
+                disabled={archiveLoading}
+              >
+                {archiveLoading ? "Archiving…" : "Archive"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {pendingDelete ? (

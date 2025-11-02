@@ -13,6 +13,8 @@ export type WishlistItem = {
   priceCents?: number | null;
   notes?: string | null;
   createdAt?: string;
+  archived?: boolean;
+  archivedAt?: string | null;
   gift?: WishlistGift;
   points?: number | null;
 };
@@ -45,6 +47,11 @@ function sanitizeWishlistItem(raw: unknown): WishlistItem | null {
     priceCents: typeof candidate.priceCents === "number" ? candidate.priceCents : null,
     notes: typeof candidate.notes === "string" ? candidate.notes : null,
     createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : undefined,
+    archived: typeof candidate.archived === "boolean" ? candidate.archived : false,
+    archivedAt:
+      typeof (candidate as { archivedAt?: unknown }).archivedAt === "string"
+        ? ((candidate as { archivedAt?: string | null }).archivedAt ?? null)
+        : null,
     gift: candidate.gift ?? null,
     points: typeof candidate.points === "number" ? candidate.points : null,
   };
