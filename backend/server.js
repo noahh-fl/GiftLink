@@ -2165,7 +2165,10 @@ app.delete("/wishlist/:id", async (req, res) => {
       return sendJsonError(res, 404, "Wishlist item not found.", ERROR_CODES.NOT_FOUND);
     }
 
-    await prisma.wishlistItem.delete({ where: { id: itemId } });
+    await prisma.$transaction([
+      prisma.gift.deleteMany({ where: { wishlistItemId: itemId } }),
+      prisma.wishlistItem.delete({ where: { id: itemId } }),
+    ]);
     return res.status(204).send();
   } catch (error) {
     req.log.error({ err: error }, "Failed to delete wishlist item");
