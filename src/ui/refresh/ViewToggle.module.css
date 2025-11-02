@@ -1,0 +1,35 @@
+.toggle {
+  display: inline-flex;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  padding: var(--space-1);
+}
+
+.button {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--body-size);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.button:hover,
+.button:focus-visible {
+  color: var(--color-text);
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.active {
+  background: var(--color-accent-quiet);
+  color: var(--color-text);
+}

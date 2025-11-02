@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { extractWishlistItems } from "../SpaceWishlist";
+import { extractWishlistItems } from "../SpaceWishlist.utils";
 
 describe("extractWishlistItems", () => {
   it("returns an empty array when gifts are undefined", () => {
