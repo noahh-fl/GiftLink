@@ -9,6 +9,11 @@
   box-shadow: var(--elev-1);
 }
 
+.selected {
+  border-color: var(--color-accent);
+  box-shadow: var(--elev-2);
+}
+
 .media {
   width: 100%;
   border-radius: var(--radius-md);

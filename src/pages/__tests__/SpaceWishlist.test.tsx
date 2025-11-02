@@ -45,7 +45,7 @@ describe("SpaceWishlist", () => {
       expect(mockedApiFetch).toHaveBeenCalledWith("/wishlist?spaceId=1");
     });
 
-    const emptyState = await screen.findByText("No items yet. Paste your first link to begin.");
+    const emptyState = await screen.findByText("No items yet. Add your first idea.");
     expect(emptyState).toBeTruthy();
   });
 });

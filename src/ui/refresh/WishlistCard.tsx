@@ -15,6 +15,7 @@ interface WishlistCardProps {
   onDelete?: () => void;
   deleteButtonRef?: (node: HTMLButtonElement | null) => void;
   deleteDisabled?: boolean;
+  selected?: boolean;
 }
 
 export default function WishlistCard({
@@ -32,10 +33,13 @@ export default function WishlistCard({
   onDelete,
   deleteButtonRef,
   deleteDisabled = false,
+  selected = false,
 }: WishlistCardProps) {
   const actionClass = [styles.action, actionType === "link" ? styles.linkAction : undefined]
     .filter(Boolean)
     .join(" ");
+
+  const cardClass = [styles.card, selected ? styles.selected : undefined].filter(Boolean).join(" ");
 
   const handleClick = () => {
     if (onAction) {
@@ -76,7 +80,7 @@ export default function WishlistCard({
   ) : null;
 
   return (
-    <article className={styles.card}>
+    <article className={cardClass}>
       <div className={styles.media}>
         {imageUrl ? <img src={imageUrl} alt="" loading="lazy" /> : <div className={styles.placeholder}>No image</div>}
       </div>
