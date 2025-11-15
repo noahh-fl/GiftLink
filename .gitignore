@@ -30,3 +30,7 @@ backend/prisma/test.db
 # Local SQLite DB
 backend/prisma/dev.db*
 backend/prisma/*.db*
+
+# Ignore environment files
+.env
+backend/.env

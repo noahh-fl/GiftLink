@@ -1,0 +1,111 @@
+/* Auth Pages (Login & Signup) */
+
+.auth {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--color-bg);
+}
+
+.auth__container {
+  width: 100%;
+  max-width: 420px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  box-shadow: var(--elev-1);
+}
+
+.auth__header {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.auth__eyebrow {
+  font-size: var(--caption-size);
+  font-weight: var(--caption-weight);
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-2);
+}
+
+.auth__title {
+  font-size: var(--h2-size);
+  font-weight: var(--h2-weight);
+  color: var(--color-text);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.auth__subtitle {
+  font-size: var(--body-size);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.auth__error {
+  padding: var(--space-4);
+  background: rgba(224, 58, 58, 0.08);
+  border: 1px solid rgba(224, 58, 58, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.auth__actions {
+  margin-top: var(--space-2);
+}
+
+.auth__actions .button {
+  width: 100%;
+}
+
+.auth__footer {
+  text-align: center;
+  margin-top: var(--space-6);
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.auth__link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 600;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.auth__link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.auth__link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .auth {
+    padding: var(--space-4);
+  }
+
+  .auth__container {
+    padding: var(--space-6);
+  }
+
+  .auth__title {
+    font-size: 24px;
+  }
+}

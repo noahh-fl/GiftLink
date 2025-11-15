@@ -8,23 +8,36 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  createdAt DateTime @default(now())
-  gifts     Gift[]
+  id            Int                @id @default(autoincrement())
+  name          String
+  email         String             @unique
+  password      String // Hashed password (bcrypt)
+  refreshToken  String? // For JWT refresh flow
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  ownedSpaces   Space[]            @relation("SpaceOwner") // Spaces created by this user
+  spaceMembers  SpaceMember[] // Spaces this user belongs to
+  gifts         Gift[] // Gifts given by this user
+  wishlistItems WishlistItem[] // Items created by this user
+  ownedRewards  Reward[] // Rewards created by this user
+  ledgerEntries LedgerEntry[] // Point transactions
+  activities    Activity[] // Activities performed
+  redemptions   RewardRedemption[] // Rewards redeemed
 }
 
 model Space {
-  id            Int            @id @default(autoincrement())
+  id            Int                @id @default(autoincrement())
   name          String
   description   String?
-  inviteCode    String         @unique
-  joinCode      String         @unique
+  inviteCode    String             @unique
+  joinCode      String             @unique
   mode          String
-  points        Int            @default(0)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  points        Int                @default(0)
+  ownerId       Int? // User who created the space
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  owner         User?              @relation("SpaceOwner", fields: [ownerId], references: [id])
+  members       SpaceMember[] // Users who are members
   wishlistItems WishlistItem[]
   rewards       Reward[]
   ledger        LedgerEntry[]
@@ -32,9 +45,24 @@ model Space {
   redemptions   RewardRedemption[]
 }
 
+model SpaceMember {
+  id       Int      @id @default(autoincrement())
+  spaceId  Int
+  userId   Int
+  role     Role     @default(MEMBER)
+  joinedAt DateTime @default(now())
+  space    Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, userId]) // A user can only be in a space once
+  @@index([userId]) // Fast lookup of user's spaces
+  @@index([spaceId]) // Fast lookup of space members
+}
+
 model WishlistItem {
   id         Int       @id @default(autoincrement())
   spaceId    Int
+  creatorId  Int // User who created this wishlist item
   title      String
   url        String?
   image      String?
@@ -46,23 +74,27 @@ model WishlistItem {
   archivedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-  space      Space     @relation(fields: [spaceId], references: [id])
+  space      Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  creator    User      @relation(fields: [creatorId], references: [id])
   gift       Gift?
+
+  @@index([spaceId, archived]) // Fast filtering by space and archived status
+  @@index([creatorId]) // Fast lookup of user's wishlist items
 }
 
 model Gift {
-  id                Int         @id @default(autoincrement())
-  wishlistItemId    Int         @unique
+  id                Int          @id @default(autoincrement())
+  wishlistItemId    Int          @unique
   giverId           Int?
-  status            GiftStatus  @default(PENDING)
+  status            GiftStatus   @default(PENDING)
   sentimentPoints   Int?
   pricePointsLocked Int?
   reservedAt        DateTime?
   purchasedAt       DateTime?
   deliveredAt       DateTime?
   receivedAt        DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
   wishlistItem      WishlistItem @relation(fields: [wishlistItemId], references: [id])
   giver             User?        @relation(fields: [giverId], references: [id])
 
@@ -70,59 +102,73 @@ model Gift {
 }
 
 model Reward {
-  id          Int      @id @default(autoincrement())
+  id          Int                @id @default(autoincrement())
   spaceId     Int
-  ownerKey    String
+  ownerId     Int // User who created this reward
   title       String
   points      Int
   description String?
   icon        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  space       Space    @relation(fields: [spaceId], references: [id])
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  space       Space              @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  owner       User               @relation(fields: [ownerId], references: [id])
   redemptions RewardRedemption[]
 
-  @@index([spaceId, ownerKey])
+  @@index([spaceId, ownerId])
+  @@index([ownerId]) // Fast lookup of user's rewards
 }
 
 model LedgerEntry {
   id        Int             @id @default(autoincrement())
   spaceId   Int
-  userKey   String
+  userId    Int // User this transaction belongs to
   type      LedgerEntryType
   points    Int
   reason    String
   meta      Json?
   createdAt DateTime        @default(now())
-  space     Space           @relation(fields: [spaceId], references: [id])
+  space     Space           @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id])
 
-  @@index([spaceId, userKey, createdAt])
+  @@index([spaceId, userId, createdAt])
+  @@index([userId]) // Fast lookup of user's ledger
 }
 
 model Activity {
-  id        Int           @id @default(autoincrement())
+  id        Int          @id @default(autoincrement())
   spaceId   Int
-  actorKey  String
+  actorId   Int // User who performed this activity
   type      ActivityType
   payload   Json?
-  createdAt DateTime       @default(now())
-  space     Space          @relation(fields: [spaceId], references: [id])
+  createdAt DateTime     @default(now())
+  space     Space        @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  actor     User         @relation(fields: [actorId], references: [id])
 
   @@index([spaceId, createdAt])
+  @@index([actorId]) // Fast lookup of user's activities
 }
 
 model RewardRedemption {
-  id          Int                  @id @default(autoincrement())
-  spaceId     Int
-  rewardId    Int
-  redeemerKey String
-  status      RedemptionStatus     @default(PENDING)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  reward      Reward               @relation(fields: [rewardId], references: [id])
-  space       Space                @relation(fields: [spaceId], references: [id])
+  id         Int              @id @default(autoincrement())
+  spaceId    Int
+  rewardId   Int
+  redeemerId Int // User who redeemed the reward
+  status     RedemptionStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  reward     Reward           @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  space      Space            @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  redeemer   User             @relation(fields: [redeemerId], references: [id])
 
-  @@index([spaceId, redeemerKey, createdAt])
+  @@index([spaceId, redeemerId, createdAt])
+  @@index([redeemerId]) // Fast lookup of user's redemptions
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
 }
 
 enum LedgerEntryType {

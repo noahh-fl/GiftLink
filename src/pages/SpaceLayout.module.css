@@ -14,8 +14,29 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.headerContent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--space-4);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.userName {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
 .navWrapper {
   overflow-x: auto;
+  flex: 1;
 }
 
 .navList {

@@ -38,8 +38,10 @@
 
 .welcome__actions {
   display: flex;
+  gap: var(--space-3);
   justify-content: flex-start;
   padding-top: var(--space-6);
+  flex-wrap: wrap;
 }
 
 .welcome__actions .button {

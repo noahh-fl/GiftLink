@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import ErrorBoundary from "../components/ErrorBoundary";
 import Button from "../ui/components/Button";
 import { apiFetch } from "../utils/api";
@@ -26,6 +27,7 @@ export default function SpaceLayout() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
   const { setActiveSpace } = useSpace();
+  const { user, logout } = useAuth();
 
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [space, setSpace] = useState<SpaceDetails | null>(null);
@@ -102,28 +104,45 @@ export default function SpaceLayout() {
 
   const isSpaceIdInvalid = numericSpaceId === null;
 
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
+
   return (
     <div className={styles.layout}>
       <header className={styles.header}>
-        <nav aria-label="Space" className={styles.navWrapper}>
-          <ul className={styles.navList} role="list">
-            {navItems.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    [styles.navLink, isActive ? styles.navLinkActive : undefined]
-                      .filter(Boolean)
-                      .join(" ")
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <div className={styles.headerContent}>
+          <nav aria-label="Space" className={styles.navWrapper}>
+            <ul className={styles.navList} role="list">
+              {navItems.map((item) => (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      [styles.navLink, isActive ? styles.navLinkActive : undefined]
+                        .filter(Boolean)
+                        .join(" ")
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className={styles.headerActions}>
+            {user && (
+              <>
+                <span className={styles.userName}>{user.name}</span>
+                <Button variant="ghost" onClick={handleLogout}>
+                  Sign out
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
       </header>
 
       <main className={styles.main} aria-live="polite">

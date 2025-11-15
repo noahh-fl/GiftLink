@@ -17,7 +17,8 @@ export default function Welcome() {
         </p>
       </section>
       <div className="welcome__actions">
-        <Button type="button" onClick={() => navigate("/start")}>Get started</Button>
+        <Button type="button" onClick={() => navigate("/signup")}>Get started</Button>
+        <Button variant="secondary" type="button" onClick={() => navigate("/login")}>Sign in</Button>
       </div>
     </main>
   );

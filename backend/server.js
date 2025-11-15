@@ -4,6 +4,9 @@ import { randomBytes } from "node:crypto";
 import prisma from "./prisma/prisma.js";
 import { fetchUrlMetadata, mergeMetadataWithManualFields } from "./lib/urlMetadata.js";
 import { resolvePointsForGift, roundPriceToPoints } from "./lib/giftPoints.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { requireAuth, requireSpaceMembership, requireSpaceOwnership } from "./middleware/auth.js";
+import { isSpaceMember, addSpaceMember } from "./lib/spaceHelpers.js";
 
 const app = Fastify({ logger: true });
 
@@ -20,7 +23,10 @@ app.get("/", async () => {
   return { message: "GiftLink backend is running!" };
 });
 
-// create user
+// Register authentication routes
+registerAuthRoutes(app);
+
+// create user (DEPRECATED - use /auth/register instead)
 app.post("/user", async (req, res) => {
   const { name, email } = req.body;
   const user = await prisma.user.create({
@@ -29,7 +35,7 @@ app.post("/user", async (req, res) => {
   return user;
 });
 
-app.post("/metadata/peekalink", async (req, res) => {
+app.post("/metadata/peekalink", { preHandler: requireAuth }, async (req, res) => {
   const { link } = req.body ?? {};
 
   const preparedLink = typeof link === "string" ? link.trim() : "";
@@ -85,7 +91,7 @@ app.post("/metadata/peekalink", async (req, res) => {
   }
 });
 
-app.post("/gifts/parse", async (req, res) => {
+app.post("/gifts/parse", { preHandler: requireAuth }, async (req, res) => {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
   }
@@ -274,9 +280,46 @@ function cleanAmazonTitle(title) {
     return null;
   }
 
-  const withoutPrefix = title.replace(/^amazon\.com\s*:\s*/i, "");
-  const collapsed = withoutPrefix.replace(/\s+/g, " ").trim();
-  const cleaned = collapsed.replace(/^[\s:;,.\-|]+/, "").replace(/[\s:;,.\-|]+$/, "");
+  // Remove amazon.com prefix
+  let cleaned = title.replace(/^amazon\.com\s*:\s*/i, "");
+
+  // Collapse whitespace
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+
+  // Remove leading/trailing punctuation
+  cleaned = cleaned.replace(/^[\s:;,.\-|]+/, "").replace(/[\s:;,.\-|]+$/, "");
+
+  // Simplify long Amazon titles by removing common verbose patterns
+  // Remove size/color variants in parentheses or after commas (e.g., "(Large, Blue)")
+  cleaned = cleaned.replace(/[,\-]\s*\(.*?\)/g, "");
+
+  // Remove specifications in parentheses at the end (e.g., "(Pack of 12)", "(2-Pack)")
+  cleaned = cleaned.replace(/\s*\([^)]*(?:pack|count|size|oz|lb|piece|set)[^)]*\)\s*$/i, "");
+
+  // Remove common promotional phrases
+  cleaned = cleaned.replace(/\s*[-–]\s*(Amazon Exclusive|Best Seller|New Release|Limited Edition|Sale).*$/i, "");
+
+  // Remove excessive details after a dash or pipe if the title is long
+  if (cleaned.length > 60) {
+    // Keep only the first part before dash/pipe if there's a clear product name
+    const parts = cleaned.split(/\s+[-–|]\s+/);
+    if (parts.length > 1 && parts[0].length > 20) {
+      cleaned = parts[0];
+    }
+  }
+
+  // Truncate very long titles and add ellipsis
+  if (cleaned.length > 80) {
+    // Try to truncate at a word boundary
+    const truncated = cleaned.substring(0, 77);
+    const lastSpace = truncated.lastIndexOf(' ');
+    cleaned = (lastSpace > 50 ? truncated.substring(0, lastSpace) : truncated) + '...';
+  }
+
+  // Final cleanup
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  cleaned = cleaned.replace(/[\s:;,.\-|]+$/, "");
+
   return cleaned || null;
 }
 
@@ -665,19 +708,8 @@ function serializeSpace(space) {
   };
 }
 
-function resolveUserKey(req) {
-  const rawHeader =
-    req.headers?.["x-user-id"] ?? req.headers?.["x-user"] ?? req.headers?.["x-user-key"] ?? null;
-
-  if (typeof rawHeader === "string") {
-    const trimmed = rawHeader.trim();
-    if (trimmed.length > 0) {
-      return trimmed.slice(0, 120);
-    }
-  }
-
-  return "anonymous-tester";
-}
+// DEPRECATED: resolveUserKey removed - now using JWT authentication
+// All routes now get userId from req.user.userId set by requireAuth middleware
 
 function normalizeExternalUserKey(value) {
   if (typeof value !== "string") {
@@ -692,7 +724,10 @@ function normalizeExternalUserKey(value) {
   return trimmed.slice(0, 120);
 }
 
-app.post("/space", async (req, res) => {
+app.post("/space", { preHandler: requireAuth }, async (req, res) => {
+  // Get authenticated user ID from JWT token
+  const userId = req.user.userId;
+
   const { name, description, mode } = req.body ?? {};
   const trimmedName = typeof name === "string" ? name.trim() : "";
   const trimmedDescription =
@@ -717,6 +752,9 @@ app.post("/space", async (req, res) => {
       description: trimmedDescription,
       mode: normalizedMode,
     });
+    // Set owner and add as member
+    await prisma.space.update({ where: { id: space.id }, data: { ownerId: userId } });
+    await addSpaceMember(userId, space.id, "OWNER");
     return res.status(201).send(space);
   } catch (error) {
     if (error?.code === "SPACE_CODE_CONFLICT") {
@@ -738,7 +776,7 @@ app.get("/space", async () => {
   return spaces;
 });
 
-app.post("/spaces", async (req, res) => {
+app.post("/spaces", { preHandler: requireAuth }, async (req, res) => {
   const { value, error } = normalizeSpacePayload(req.body, { requireName: true });
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -752,6 +790,9 @@ app.post("/spaces", async (req, res) => {
       description,
       mode: DEFAULT_SPACE_MODE,
     });
+    // Set owner and add as member
+    await prisma.space.update({ where: { id: space.id }, data: { ownerId: userId } });
+    await addSpaceMember(userId, space.id, "OWNER");
     return res.status(201).send({ space: serializeSpace(space) });
   } catch (creationError) {
     if (creationError?.code === "SPACE_CODE_CONFLICT") {
@@ -771,7 +812,7 @@ app.post("/spaces", async (req, res) => {
   }
 });
 
-app.get("/spaces/:id", async (req, res) => {
+app.get("/spaces/:id", { preHandler: [requireAuth, requireSpaceMembership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -793,7 +834,29 @@ app.get("/spaces/:id", async (req, res) => {
   }
 });
 
-app.patch("/spaces/:id", async (req, res) => {
+app.get("/user/spaces", { preHandler: requireAuth }, async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const memberships = await prisma.spaceMember.findMany({
+      where: { userId },
+      include: {
+        space: true,
+      },
+      orderBy: {
+        joinedAt: 'desc',
+      },
+    });
+
+    const spaces = memberships.map(membership => serializeSpace(membership.space));
+    return res.status(200).send({ spaces });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to load user spaces");
+    return sendJsonError(res, 500, "Failed to load user spaces.", ERROR_CODES.INTERNAL);
+  }
+});
+
+app.patch("/spaces/:id", { preHandler: [requireAuth, requireSpaceOwnership] }, async (req, res) => {
   const { value: spaceId, error: idError } = parseSpaceId(req.params.id);
   if (idError) {
     return sendJsonError(res, 400, idError, ERROR_CODES.BAD_REQUEST);
@@ -828,7 +891,7 @@ app.patch("/spaces/:id", async (req, res) => {
   }
 });
 
-app.delete("/spaces/:id", async (req, res) => {
+app.delete("/spaces/:id", { preHandler: [requireAuth, requireSpaceOwnership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -848,7 +911,7 @@ app.delete("/spaces/:id", async (req, res) => {
   }
 });
 
-app.get("/spaces", async (req, res) => {
+app.get("/spaces", { preHandler: requireAuth }, async (req, res) => {
   const rawInviteCode = req.query?.inviteCode;
   let inviteCode = "";
 
@@ -892,7 +955,7 @@ app.get("/spaces", async (req, res) => {
   }
 });
 
-app.post("/spaces/join", async (req, res) => {
+app.post("/spaces/join", { preHandler: requireAuth }, async (req, res) => {
   const codeInput = req.body?.code;
   if (typeof codeInput !== "string") {
     return sendJsonError(res, 400, "Code is required.", ERROR_CODES.BAD_REQUEST);
@@ -940,7 +1003,7 @@ app.post("/spaces/join", async (req, res) => {
   }
 });
 
-app.get("/spaces/:id/code", async (req, res) => {
+app.get("/spaces/:id/code", { preHandler: [requireAuth, requireSpaceOwnership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -967,7 +1030,7 @@ app.get("/spaces/:id/code", async (req, res) => {
   }
 });
 
-app.post("/spaces/:id/code/rotate", async (req, res) => {
+app.post("/spaces/:id/code/rotate", { preHandler: [requireAuth, requireSpaceOwnership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -1055,7 +1118,7 @@ app.get("/spaces/:id/balance", async (req, res) => {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
   }
 
-  const userKey = resolveUserKey(req);
+  const userKey =(req);
 
   try {
     const points = await computeBalance(prisma, spaceId, userKey);
@@ -1066,13 +1129,13 @@ app.get("/spaces/:id/balance", async (req, res) => {
   }
 });
 
-app.get("/spaces/:id/ledger", async (req, res) => {
+app.get("/spaces/:id/ledger", { preHandler: [requireAuth, requireSpaceMembership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
   }
 
-  const fallbackUser = resolveUserKey(req);
+  const fallbackUser =(req);
   const rawUserParam = Array.isArray(req.query?.user) ? req.query?.user[0] : req.query?.user;
   const requestedUser = normalizeExternalUserKey(rawUserParam) ?? fallbackUser;
   const rawLimit = Array.isArray(req.query?.limit) ? req.query?.limit[0] : req.query?.limit;
@@ -1100,7 +1163,7 @@ app.get("/spaces/:id/ledger", async (req, res) => {
   }
 });
 
-app.get("/spaces/:id/activity", async (req, res) => {
+app.get("/spaces/:id/activity", { preHandler: [requireAuth, requireSpaceMembership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -1124,7 +1187,7 @@ app.get("/spaces/:id/activity", async (req, res) => {
   }
 });
 
-app.post("/spaces/:id/rewards", async (req, res) => {
+app.post("/spaces/:id/rewards", { preHandler: [requireAuth, requireSpaceMembership] }, async (req, res) => {
   const { value: spaceId, error } = parseSpaceId(req.params.id);
   if (error) {
     return sendJsonError(res, 400, error, ERROR_CODES.BAD_REQUEST);
@@ -1134,7 +1197,7 @@ app.post("/spaces/:id/rewards", async (req, res) => {
     return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
   }
 
-  const ownerKey = resolveUserKey(req);
+  const ownerKey =(req);
   const title = sanitizeNullableString(req.body.title);
   if (!title) {
     return sendJsonError(res, 400, "Title is required.", ERROR_CODES.BAD_REQUEST);
@@ -1203,7 +1266,7 @@ app.put("/spaces/:id/rewards/:rewardId", async (req, res) => {
     return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
   }
 
-  const ownerKey = resolveUserKey(req);
+  const ownerKey =(req);
   const title = sanitizeNullableString(req.body.title);
   if (!title) {
     return sendJsonError(res, 400, "Title is required.", ERROR_CODES.BAD_REQUEST);
@@ -1270,7 +1333,7 @@ app.post("/spaces/:id/rewards/:rewardId/redeem", async (req, res) => {
     return sendJsonError(res, 400, rewardError, ERROR_CODES.BAD_REQUEST);
   }
 
-  const redeemerKey = resolveUserKey(req);
+  const redeemerKey =(req);
 
   try {
     const reward = await prisma.reward.findUnique({
@@ -1358,7 +1421,7 @@ app.delete("/spaces/:id/rewards/:rewardId", async (req, res) => {
     return sendJsonError(res, 400, rewardError, ERROR_CODES.BAD_REQUEST);
   }
 
-  const ownerKey = resolveUserKey(req);
+  const ownerKey =(req);
 
   try {
     const existing = await prisma.reward.findUnique({
@@ -1859,7 +1922,7 @@ function buildLifecycleResponse(gift) {
   };
 }
 
-app.post("/wishlist", async (req, res) => {
+app.post("/wishlist", { preHandler: requireAuth }, async (req, res) => {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
   }
@@ -1929,11 +1992,12 @@ app.post("/wishlist", async (req, res) => {
       return sendJsonError(res, 404, "Space not found.", ERROR_CODES.NOT_FOUND);
     }
 
-    const actorKey = resolveUserKey(req);
+    const userId = req.user.userId;
 
     const created = await prisma.wishlistItem.create({
       data: {
         spaceId,
+        creatorId: userId,
         title,
         url: urlResult.value,
         image: resolvedImage,
@@ -1953,7 +2017,7 @@ app.post("/wishlist", async (req, res) => {
 
     await logActivity(prisma, {
       spaceId,
-      actorKey,
+      actorKey: userId,
       type: ACTIVITY_TYPES.WISHLIST_ADD,
       payload: {
         itemId: created.id,
@@ -1968,7 +2032,7 @@ app.post("/wishlist", async (req, res) => {
   }
 });
 
-app.post("/spaces/:id/gifts", async (req, res) => {
+app.post("/spaces/:id/gifts", { preHandler: [requireAuth, requireSpaceMembership] }, async (req, res) => {
   const { value: spaceId, error: spaceError } = parseSpaceId(req.params.id);
   if (spaceError) {
     return sendJsonError(res, 400, spaceError, ERROR_CODES.BAD_REQUEST);
@@ -2046,11 +2110,12 @@ app.post("/spaces/:id/gifts", async (req, res) => {
       }
     }
 
-    const actorKey = resolveUserKey(req);
+    const userId = req.user.userId;
 
     const created = await prisma.wishlistItem.create({
       data: {
         spaceId,
+        creatorId: userId,
         title,
         url: urlResult.value,
         image: imageResult.value,
@@ -2068,7 +2133,7 @@ app.post("/spaces/:id/gifts", async (req, res) => {
 
     await logActivity(prisma, {
       spaceId,
-      actorKey,
+      actorKey: userId,
       type: ACTIVITY_TYPES.WISHLIST_ADD,
       payload: {
         itemId: created.id,
@@ -2083,7 +2148,7 @@ app.post("/spaces/:id/gifts", async (req, res) => {
   }
 });
 
-app.get("/wishlist", async (req, res) => {
+app.get("/wishlist", { preHandler: requireAuth }, async (req, res) => {
   const query = req.query ?? {};
   const rawSpaceId = query.spaceId;
   const spaceId = Number.parseInt(rawSpaceId, 10);
@@ -2149,7 +2214,7 @@ app.get("/wishlist", async (req, res) => {
   }
 });
 
-app.delete("/wishlist/:id", async (req, res) => {
+app.delete("/wishlist/:id", { preHandler: requireAuth }, async (req, res) => {
   const itemId = parseIdParam(req.params.id, "Wishlist id", res);
   if (!itemId) {
     return;
@@ -2173,7 +2238,7 @@ app.delete("/wishlist/:id", async (req, res) => {
   }
 });
 
-app.patch("/wishlist/:id", async (req, res) => {
+app.patch("/wishlist/:id", { preHandler: requireAuth }, async (req, res) => {
   const itemId = parseIdParam(req.params.id, "Wishlist id", res);
   if (!itemId) {
     return;
@@ -2226,7 +2291,7 @@ app.patch("/wishlist/:id", async (req, res) => {
   }
 });
 
-app.post("/wishlist/bulk-archive", async (req, res) => {
+app.post("/wishlist/bulk-archive", { preHandler: requireAuth }, async (req, res) => {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     return sendJsonError(res, 400, "Body must be a JSON object.", ERROR_CODES.BAD_REQUEST);
   }
@@ -2322,7 +2387,7 @@ app.post("/wishlist/bulk-archive", async (req, res) => {
   }
 });
 
-app.post("/gift/:id/reserve", async (req, res) => {
+app.post("/gift/:id/reserve", { preHandler: requireAuth }, async (req, res) => {
   const giftId = parseIdParam(req.params.id, "Gift id", res);
   if (!giftId) {
     return;
@@ -2339,7 +2404,7 @@ app.post("/gift/:id/reserve", async (req, res) => {
     return sendJsonError(res, 400, "giverId must be a positive integer.", ERROR_CODES.BAD_REQUEST);
   }
 
-  const actorKey = resolveUserKey(req);
+  const actorKey =(req);
   const creditTarget = normalizeExternalUserKey(payload?.giverKey) ?? actorKey;
 
   try {
@@ -2381,7 +2446,7 @@ app.post("/gift/:id/reserve", async (req, res) => {
   }
 });
 
-app.post("/gift/:id/purchase", async (req, res) => {
+app.post("/gift/:id/purchase", { preHandler: requireAuth }, async (req, res) => {
   const giftId = parseIdParam(req.params.id, "Gift id", res);
   if (!giftId) {
     return;
@@ -2431,7 +2496,7 @@ app.post("/gift/:id/purchase", async (req, res) => {
   }
 });
 
-app.post("/gift/:id/deliver", async (req, res) => {
+app.post("/gift/:id/deliver", { preHandler: requireAuth }, async (req, res) => {
   const giftId = parseIdParam(req.params.id, "Gift id", res);
   if (!giftId) {
     return;
@@ -2462,7 +2527,7 @@ app.post("/gift/:id/deliver", async (req, res) => {
   }
 });
 
-app.post("/gift/:id/receive", async (req, res) => {
+app.post("/gift/:id/receive", { preHandler: requireAuth }, async (req, res) => {
   const giftId = parseIdParam(req.params.id, "Gift id", res);
   if (!giftId) {
     return;
@@ -2484,7 +2549,7 @@ app.post("/gift/:id/receive", async (req, res) => {
     }
 
     const spaceMode = gift.wishlistItem?.space?.mode ?? DEFAULT_SPACE_MODE;
-    const actorKey = resolveUserKey(req);
+    const actorKey =(req);
     const creditTarget = normalizeExternalUserKey(payload?.giverKey) ?? actorKey;
     let sentimentPointsUpdate = undefined;
 
