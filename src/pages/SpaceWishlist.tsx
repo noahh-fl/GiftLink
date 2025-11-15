@@ -589,6 +589,13 @@ export default function SpaceWishlist() {
       }
 
       const payload = body as ParsedGiftResponse;
+
+      // For sentiment mode, suggest points based on price (but user can edit)
+      let suggestedPoints = "";
+      if (isValueMode && typeof payload.price === "number") {
+        suggestedPoints = String(Math.max(1, Math.round(payload.price)));
+      }
+
       setFormState((previous) => ({
         ...previous,
         title: payload.title ?? previous.title,
@@ -598,10 +605,11 @@ export default function SpaceWishlist() {
           typeof payload.currency === "string" && payload.currency.trim()
             ? payload.currency.trim().toUpperCase()
             : previous.currency,
+        points: suggestedPoints || previous.points,
       }));
       setFlowStep("details");
       setIsManualEntry(false);
-      setAllowEditDetails(false);
+      setAllowEditDetails(true); // Allow editing points in sentiment mode
       setManualEntryNotice("");
     } catch (error) {
       const fallbackManualMessage = "We couldn’t read that link. Try another or enter details manually.";
@@ -923,7 +931,7 @@ export default function SpaceWishlist() {
 
                   {isValueMode ? (
                     <div className={styles.row}>
-                      <FormField htmlFor="wishlist-points" label="Points" required hint="Whole numbers only">
+                      <FormField htmlFor="wishlist-points" label="Points" required hint="How much you value this gift">
                         <Input
                           id="wishlist-points"
                           value={formState.points}
